@@ -11,6 +11,8 @@ This script does stuff with stuff
 '''
 
 import os
+import datetime
+import time
 import pandas as pd
 import shutil
 import sqlite3
@@ -19,20 +21,37 @@ import glob
 import geopandas as gpd
 from shapely import Point, LineString, Polygon
 from shapely import force_2d
+from rsxml.project_xml import (
+   Project,
+   MetaData,
+   Meta,
+   ProjectBounds,
+   Coords,
+   BoundingBox,
+   Realization,
+   Geopackage,
+   GeopackageLayer,
+   GeoPackageDatasetTypes,
+   Dataset
+)
 
 
-def create_proj_dir(huc10):
-    path = os.path.join(outdir, f'retro/{huc10[:6]}/{huc10}')
+import sys
+
+
+def create_proj_dir(huc6, new_dir):
+    path = os.path.join(outdir, f'retro/{huc6}/{new_dir}')
+    
     if not os.path.exists(path):
         os.makedirs(path)
-        print('Project directory created.')
-    else: print('Project directory exists.')
+        print(f'Project directory created: {os.path.relpath(path)}')
+    else: print(f'Project directory exists: {os.path.relpath(path)}')
     return(path)
 
-def add_cov_metadata(path):
-    cov_metadata = os.path.join('DATA', 'covariate_metadata.csv')
-    shutil.copy(cov_metadata, os.path.join(path, 'covariate_metadata.csv'))
-    return(print('Covariate metadata successfully added.'))
+def add_file(filepath, dest):
+    filename =  filepath.split("/")[-1]
+    shutil.copy(filepath, dest)
+    return(print(f'\n{filename} successfully added to {os.path.relpath(dest)}.'))
     
 def add_database(df, db_name, db_path, zip_file = True):
     connection= sqlite3.connect(db_path)
@@ -45,30 +64,31 @@ def add_database(df, db_name, db_path, zip_file = True):
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 zipf.write(db_path, os.path.basename(db_path))
             os.remove(db_path)
-            print(f"Successfully zipped '{db_name}' to '{zip_path}'")
+            print(f"Successfully zipped '{db_name}' to '{os.path.relpath(zip_path)}'")
         except:
-            print(f"Error zipping database {db_name}.")
+            print(f"\nERROR zipping database {db_name}.")
     return
 
 def create_database_file(file, date_col, proj_path, db_type, compression = None, add_cols = None, zip_file = True, overwrite = False):
     df = pd.read_csv(file, parse_dates = [date_col], compression = compression)
     df.columns = df.columns.str.split(r'\.').str[-1].str.strip()
+    df.rename({'COMID': 'comid', 'Huc10': 'HUC10'}, axis = 1, inplace = True)
     out_path = os.path.join(proj_path, f'daily_{db_type}.db')
-    if not (os.path.exists(out_path)) or (overwrite==True):
+    if not (os.path.exists(out_path)) or (overwrite!=True):
         if db_type == 'stream_temperature':
             try:
                 dropcols = ['antec_air_temp', 'std_mean_flow']
                 df_trim = df.drop(dropcols, axis = 1, errors = 'ignore')
-                df_out = df_trim[['COMID', 'date', 'stream_temp']]
-                print('Stream temperature file processed.')
-            except: print('Stream temperature file failed.')
+                df_out = df_trim[['comid', 'date', 'stream_temp']]
+                print(f'\n\nStream temperature file processed: {len(df_out.comid.unique())} comids')
+            except: print('\n\nStream temperature file FAILED.')
        
         else: 
             try:
                 df = df.loc[:,~df.columns.duplicated()].copy()
-                df_out = pd.merge(df, add_cols, how = 'left', on=['COMID','date'])
-                print('Temporal covariates file processed.')
-            except: print('Daily covariates file failed.')
+                df_out = pd.merge(df, add_cols, how = 'left', on=['comid','date'])
+                print(f'\n\nTemporal covariates file processed: {len(df_out.comid.unique())} comids.')
+            except: print('\n\nTemporal covariates file FAILED.')
        
         out_table = df_out.fillna(-999).round(4)
         print('Writing to database...')
@@ -76,33 +96,35 @@ def create_database_file(file, date_col, proj_path, db_type, compression = None,
     return(df)
 
 def check_comids(comids, data, layer_name):
-    try: no_data = set(comids).difference(set(data.reset_index().COMID.unique()))
-    except: no_data = set(comids).difference(set(data.reset_index().FEATUREID.unique()))
+    try: no_data = set(comids).difference(set(data.reset_index().comid.unique()))
+    except: no_data = set(comids).difference(set(data.reset_index().featureid.unique()))
     if no_data==set(): 
-        return(print(f'{layer_name} successfully loaded for all comids'))
+        return(print(f'\n\n{layer_name} successfully loaded for {len(comids)} comids'))
     else: 
-        return(print('{layer_name} missing for some comids:', no_data))
+        return(print(f'\n\n{layer_name} missing data for {round((len(no_data) / len(comids)), 2)} of comids:', 
+                     [str(n) for n in no_data]))
 
-def layer_to_gpkg(comids, data, path, layer_name, epsg = 'EPSG:4326'):
-    check_comids(comids, data, layer_name)
+def layer_to_gpkg(comids, data, path, layer_name, epsg = 'EPSG:4326', check=True):
+    if check: check_comids(comids, data, layer_name)
     try: 
         data.to_crs(epsg = epsg, inplace = True)
     except: pass
 
     if not os.path.exists(path):
-        data.to_file(path, layer = layer_name, driver = 'GPKG')
-        print('Geopackage successfully initiated.')
-    else: gpd.GeoDataFrame(data).to_file(path, layer = layer_name)
+        data.round(4).to_file(path, layer = layer_name, driver = 'GPKG')
+        print('\n\nGeopackage successfully initiated.')
+    else: gpd.GeoDataFrame(data.round(4)).to_file(path, layer = layer_name)
     
-    return(print(f'{layer_name} added to {path}.'))
+    return(print(f'\n{layer_name} added to {os.path.relpath(path)}.'))
     
 def load_spatial_covariates(file):
     df = pd.read_csv(file, index_col = 'COMID')
     df.columns = df.columns.str.split(r'\.').str[-1].str.strip()
+    df.index.rename('comid', inplace = True)
     return(df)
 
 def find_containing_huc12(h12s, wings):
-    h12s = h12s.dissolve(by='HUC_12')
+    h12s = h12s.dissolve(by='HUC12')
     
     wings_list = []
     h12s_list = []
@@ -114,9 +136,9 @@ def find_containing_huc12(h12s, wings):
             h12s_list.append(cont_h12.index[0])
         else: 
             fail_list.append(i)
-    if fail_list == []: print('All contributing areas successfully matched to HUC 12s.')
-    else: print(f'Error finding HUC 12s containing {fail_list}')
-    return(pd.DataFrame(zip(wings_list, h12s_list), columns = ['FEATUREID', 'HUC_12']))
+    if fail_list == []: print(f'\n\n{len(wings_list)} contributing areas successfully matched to HUC 12s.')
+    else: print(f'\n\nERROR finding HUC 12s containing {len(fail_list)} contributing areas: {fail_list}')
+    return(pd.DataFrame(zip(wings_list, h12s_list), columns = ['featureid', 'HUC12']))
         
 def assign_season(doy):
     """Assigns a season based on the day of year (doy)."""
@@ -138,13 +160,13 @@ def assign_water_year(date):
     else: return date.year
     
 def getSeasonalAnomalies(indf, baseline_period: range, anomaly_periods: list, cols: list):
-    print('Calculating seasonal anomalies...')
+    print(f'\n\nCalculating seasonal anomalies: {cols}')
     try:
         cur_huc_anoms = []
-        cur_comids = list(indf.COMID.unique())
+        cur_comids = list(indf.comid.unique())
         for j in cur_comids:
             #Assign water year and season
-            cur_df = indf[indf.COMID == j][['date']+ cols]
+            cur_df = indf[indf.comid == j][['date']+ cols]
             cur_ens_med = cur_df.groupby('date').median() # sets index to date
             cur_ens_med['doy'] = cur_ens_med.index.dayofyear
             cur_ens_med['season'] = cur_ens_med['doy'].apply(assign_season)
@@ -197,28 +219,117 @@ def getSeasonalAnomalies(indf, baseline_period: range, anomaly_periods: list, co
             cur_huc_anoms.append(cur_seas_anomalies)
         print('Done.')
         res = (pd.concat(cur_huc_anoms, keys = cur_comids))
-        res.index.names = ['COMID', 'season']
+        res.index.names = ['comid', 'season']
         return res.reset_index()
     except: 
         return(print('Error calculating anomalies.'))
     
+def collapse_levels(indf, level_name):
+    outdf = indf[['spring', 'summer', 'fall', 'winter']]
+    outdf.columns = [f'{level_name}_{c[:2]}' for c in outdf.columns]
+    return(outdf)
+    
 def parse_epochs(indf: pd.DataFrame, epochs: list):
-    indf.reset_index()
     epoch_dict = {}
-    idx = indf[['COMID', 'season']]
+    idx = indf[['comid', 'season']]
     idx.columns = idx.columns.droplevel(1)
     df = pd.DataFrame(idx)
     for e in epochs:
-        epoch_dict[e] = pd.concat([df, indf.xs(e, axis = 1).copy()], axis = 1)
+        vardf = pd.concat([df, indf.xs(e, axis = 1).copy()], axis = 1)
+        n_cols = [c for c in vardf.columns if c[:2] == 'n_']
+        pv_cols = [c for c in vardf.columns[2:] if c not in n_cols]
+        varpv = vardf.pivot(index = 'comid', columns = 'season', values = pv_cols)
+        varnpv = vardf.pivot(index = 'comid', columns = 'season', values = n_cols)
+        frames = []
+        n_frames = []
+        for col in pv_cols:
+            curdf = varpv.xs(col, axis = 1)
+            frames.append(collapse_levels(curdf, col))
+            ndf = varnpv.xs(f'n_{col}', axis = 1)
+            n_frames.append(collapse_levels(ndf, f'n_{col}'))
+        epoch_dict[e] = pd.concat([pd.concat(frames, axis = 1), pd.concat(n_frames, axis = 1)], axis = 1)
     return(epoch_dict)
+
+def area_weighted_mean(metric_df, weights, agg_units):
+    weighted_metrics = metric_df.apply(lambda x: x*metric_df.index.map(weights))
+    agg_units_expanded = pd.Series(weighted_metrics.index.map(agg_units), index = weighted_metrics.index, name = agg_units.name)
+    by_agg_unit = pd.concat([weighted_metrics, agg_units_expanded], axis = 1)
+    weighted_mean = by_agg_unit.groupby([agg_units.name]).sum()
+    return(weighted_mean)
+    
+def create_index(dbpath, layer, ixname):
+    conn = sqlite3.connect(dbpath)
+    with conn:
+        curs = conn.cursor()
+        try:
+            curs.execute(f'''CREATE INDEX ix_{layer}_{ixname} 
+                         ON {layer}({ixname});''')
+            conn.commit()
+            return(print(f'\nix created: {ixname}'))
+        except: return(print('\nFailed to create index on {ixname}'))
+
+def add_view(dbpath, layer_name, feature_table, f_index, a_index):
+    conn = sqlite3.connect(dbpath)
+    with conn:
+        curs = conn.cursor()
+        try: 
+            curs.execute(f'''
+                         CREATE VIEW vw_{layer_name} AS 
+                         SELECT f.fid, f.geom, a.* 
+                         FROM {feature_table} AS f INNER JOIN {layer_name} a
+                         ON f.{f_index} = a.{a_index};''')
+            
+            curs.execute(f'''
+                         INSERT INTO gpkg_contents (table_name, data_type, identifier, min_x, min_y, max_x, max_y, srs_id) 
+                         SELECT 'vw_{layer_name}', data_type, 'vw_{layer_name}', min_x, min_y, max_x, max_y, srs_id 
+                         FROM gpkg_contents WHERE table_name = '{feature_table}';''')
+            
+            curs.execute(f'''
+                         INSERT INTO gpkg_geometry_columns (table_name, column_name, geometry_type_name, srs_id, z, m)
+                         SELECT 'vw_{layer_name}', column_name, geometry_type_name, srs_id, z, m
+                         FROM gpkg_geometry_columns
+                         WHERE table_name = '{feature_table}';''')         
+
+            conn.commit()
+            print(f'\nSuccesfully added spatial view: vw_{layer_name}')        
+            
+        except: pass
+    return
+
+def get_datasets(output_gpkg: str):
+   """
+   Returns a list of the datasets from the output GeoPackage.
+   These are the spatial views that are created from the igos and dgos tables.
+   """
+
+   conn = sqlite3.connect(output_gpkg)
+   conn.enable_load_extension(True)
+   curs = conn.cursor()
+   
+   # Get the names of all the tables in the database
+   curs.execute("SELECT table_name FROM gpkg_contents")
+   datasets = [GeopackageLayer(
+       lyr_name=row[0],
+       ds_type=GeoPackageDatasetTypes.VECTOR,
+       name=row[0]
+   ) for row in curs.fetchall()]
+   return datasets
+    
 #%%
 # USER INPUTS
+proj_type = 'Stream_Temperature_Retrospective_'
+timeframe = '1950-2020_'
+
 # Required
 curhuc = '1701010107' #huc10
 huc8 = curhuc[:8]
+proj_crs = 'EPSG:9674' # NAD83 / USFS R6 Albers projection, Oregon and Washington
 
 # Optional
-datadir = os.path.join((os.path.dirname(__file__)), 'DATA/')
+os.chdir(os.path.dirname(__file__))
+curdir = os.getcwd()
+datadir = os.path.join(curdir, 'DATA/')
+geojson_dir = glob.glob(os.path.join(datadir, '*HUC17_project_bounds/' ))[0]
 overwrite = False
 
 # Define anomaly periods
@@ -229,11 +340,13 @@ periods = {'2000s': list(range(2000, 2010)),
            '2050s': list(range(2050, 2060)), 
            '2080s': list(range(2080, 2090))}
 
-#if name=='__main__':
+anom_covs = ['air_temp_ws', 'NWM_flow_log', 'SWE']
+
+
 #%% Define directories 
 
-tempdir = os.path.join(datadir, 'preds_retro/')
 outdir = os.path.join(datadir, 'Outputs/')
+tempdir = os.path.join(datadir, 'preds_retro/')
 nhddir = os.path.join(datadir, 'NHDPlusPN/NHDPlus17/')
 
 #%% Load in geometry files
@@ -242,84 +355,248 @@ hydro_files = glob.glob(os.path.join(nhddir, r'NHDSnapshot/Hydrography/*.dbf'))
 
 flowlines = gpd.read_file(hydro_files[0])
 flowlines['geometry'] = flowlines['geometry'].apply(lambda x: force_2d(x))
+flowlines.rename(columns = str.lower, inplace=True)
 
 spatial_covs_file = os.path.join(datadir, 'spatial_data.csv')
 spatial_covs = load_spatial_covariates(spatial_covs_file)
 
 contrib_area_file = os.path.join(nhddir, 'NHDPlusCatchment/Catchment.dbf')
 contrib_areas = gpd.read_file(contrib_area_file)
+contrib_areas.rename({'FEATUREID': 'featureid', 'AreaSqKM': 'area_sqkm'}, axis = 1, inplace = True)
 
 huc12s_file = os.path.join(nhddir, 'WBDSnapshot/WBD/WBD_Subwatershed.dbf')
-huc12s = gpd.read_file(huc12s_file, columns = ['OBJECTID', 'HUC_12', 'HUC_8','geometry'])
-#%%
+huc12s = gpd.read_file(huc12s_file, columns = ['OBJECTID', 'HUC_12', 'HUC_8','HU_12_NAME','HUC_10','HU_10_NAME','geometry'])
+huc12s.rename({'HUC_12': 'HUC12', 'HU_12_NAME': 'name'}, axis = 1, inplace = True)
+h10name = huc12s.loc[huc12s.HUC_10 == curhuc]['HU_10_NAME'].mode()[0]
+h10name = h10name.replace(" ","_")
+#%% Create project directory and add daily temperature and covariate databases
 
-# Create project diorectory
-proj_path = create_proj_dir(curhuc) 
-                            
-#%%
-# Add daily temperature and covariate retrospective databases
+proj_name = proj_type + timeframe + h10name
+proj_path = create_proj_dir(huc8[:6], os.path.join(proj_name))
+#sys.stdout = open(os.path.join(proj_path, 'processing.log'),'wt')
+start = datetime.datetime.now()
+print(start.strftime("%Y-%m-%d %H:%M:%S"))
 
-#Temperature
+# Add README
+add_file(os.path.join('DATA', 'preds_retro', 'readme.txt'), proj_path)
+
+# Add covariate metadata
+add_file(os.path.join('DATA', 'covariate_metadata.csv'), proj_path)
+
+# Temperature
 temp_file = os.path.join(tempdir, 'predictions_temperature', f'st_pred_{curhuc}.csv')
 temp_df = create_database_file(temp_file, date_col = 'tim.date', proj_path = proj_path, 
                                db_type = 'stream_temperature', add_cols = None, compression = None, 
                                overwrite = overwrite)
 
-#Covariates
-add_cov_metadata(proj_path)
-
+# Covariates
 cov_file = os.path.join(tempdir, 'predictions_covariates', 'cov_csvs', f'{curhuc}_covs.zip')
 cov_df = create_database_file(cov_file, date_col = 'date', proj_path = proj_path,
-                              db_type = 'covariates', add_cols = temp_df[['COMID', 'date', 'antec_air_temp', 'std_mean_flow']], 
+                              db_type = 'covariates', add_cols = temp_df[['comid', 'date', 'antec_air_temp', 'std_mean_flow']], 
                               compression = 'zip', overwrite = overwrite)
 
-#%%
-# Build geopackage
-gpkg_path = os.path.join(proj_path, 'seasonal_anomalies_spatial_covariates.gpkg')
+#%% Build geopackage
 
-cur_comids = list(set(cov_df.COMID.unique()).union(set(temp_df.COMID.unique())))
+gpkg_filename = 'seasonal_anomalies_spatial_covariates.gpkg'
+gpkg_path = os.path.join(proj_path, gpkg_filename)
+
+cur_comids = list(set(cov_df.comid.unique()).union(set(temp_df.comid.unique())))
 cur_comids.sort()
 
-# Layer 0: Flowlines
-cur_layer = 'flowlines'
-cur_flowlines = flowlines.set_index('COMID').loc[cur_comids][['FCODE', 'geometry']]
-layer_to_gpkg(cur_comids, cur_flowlines, gpkg_path, cur_layer)
-
-# Layer 1: Fcode + spatial covariates
-cur_layer = 'spatial_covarites'
-cur_spatial = spatial_covs.loc[cur_comids]
-lyr1 = pd.concat([cur_flowlines['FCODE'], cur_spatial], axis = 1)
-layer_to_gpkg(cur_comids, lyr1, gpkg_path, cur_layer)
-
-# Layer 2: Contributing area
-cur_layer = 'contriubting_area'
-cur_contrib = contrib_areas.set_index('FEATUREID').loc[cur_comids][['AreaSqKM', 'geometry']]
-cur_huc12s = huc12s.loc[huc12s.HUC_8 == huc8]
+# Layer: Contributing area
+cur_layer = 'contributing_area'
+cur_contrib = contrib_areas.set_index('featureid').loc[cur_comids][['area_sqkm', 'geometry']]
+cur_huc12s = huc12s.loc[huc12s.HUC_8 == huc8] # Constrain search area
 matched_h12s = find_containing_huc12(cur_huc12s, cur_contrib)
-cur_contrib['HUC_12'] = cur_contrib.index.map(matched_h12s.set_index('FEATUREID')['HUC_12'])
-lyr2 = cur_contrib[['AreaSqKM', 'HUC_12', 'geometry']]
+cur_contrib['HUC12'] = cur_contrib.index.map(matched_h12s.set_index('featureid')['HUC12'])
+lyr2 = cur_contrib[['HUC12', 'area_sqkm', 'geometry']]
 layer_to_gpkg(cur_comids, lyr2, gpkg_path, cur_layer)
+for ix in ['featureid', 'HUC12']:
+    create_index(gpkg_path, cur_layer, ix)
 
-# Layers 3-5 Seasonal temperature anomalies
+
+# Layer: Flowlines
+cur_layer = 'flowlines'
+cur_flowlines = flowlines.set_index('comid').loc[cur_comids][['fcode', 'geometry']]
+cur_flowlines['HUC12'] = cur_flowlines.index.map(matched_h12s.set_index('featureid')['HUC12'])
+newcols = [c for c in cur_flowlines.columns if c != 'geometry'] + ['geometry']
+cur_flowlines = cur_flowlines[newcols]
+layer_to_gpkg(cur_comids, cur_flowlines, gpkg_path, cur_layer)
+for ix in ['comid', 'fcode', 'HUC12']:
+    create_index(gpkg_path, cur_layer, ix)
+  
+    
+# Layer 2: HUC 12 geometries and area
+cur_layer = 'HUC12_boundaries'
+cur_boundaries = cur_huc12s.set_index('HUC12').loc[matched_h12s['HUC12'].unique()][['name','geometry']]
+area_sqkm = (cur_boundaries.to_crs(proj_crs).area).multiply(1e-6)
+lyr3 = pd.concat([area_sqkm.rename('area_sqkm'), cur_boundaries], axis =1)
+layer_to_gpkg(cur_comids, lyr3, gpkg_path, cur_layer, check=False)
+create_index(gpkg_path, cur_layer, 'HUC12')
+
+# Layer 3: Fcode + spatial covariates
+cur_layer = 'spatial_covariates'
+cur_spatial = spatial_covs.loc[cur_comids]
+lyr1 = pd.concat([cur_flowlines['fcode'], cur_spatial], axis = 1)
+layer_to_gpkg(cur_comids, lyr1, gpkg_path, cur_layer)
+for ix in ['comid', 'fcode']:
+    create_index(gpkg_path, cur_layer, ix)
+
+### ADD WEIGHTED MEAN SPATIAL COVARIATES??? ###
+
+
+# Calculate fraction of HUC_12 area
+cur_area = lyr2[['HUC12', 'area_sqkm']]
+total_area = cur_area.groupby('HUC12').sum()
+cur_area['h12_area'] = cur_area.HUC12.map(
+    pd.Series(total_area.area_sqkm.values, index = total_area.index))
+frac_total_area = cur_area.area_sqkm.divide(cur_area.h12_area)
+
+# Layers 4-6: Seasonal temperature anomalies (7-9 by HUC12)
 cur_layer = 'stream_temperature'
 epochs = ['2010s', '2000s', '1990s']
 temp_anomalies = getSeasonalAnomalies(temp_df, baseline_period = periods[epochs[0]], 
                                     anomaly_periods = [periods[key] for key in (epochs[1], epochs[2])], cols = ['stream_temp'])
 temp_epoch_frames = parse_epochs(temp_anomalies, epochs = epochs)
+
+
 for e in epochs:
     cur_anomalies = temp_epoch_frames[e]
-    layer_name = cur_layer +f'_{e}' if e=='2010s' else cur_layer + f'_anomalies_{e}'
+    layer_name = cur_layer + f'_{e}' if e=='2010s' else cur_layer + f'_anomalies_{e}'
     layer_to_gpkg(cur_comids, cur_anomalies, gpkg_path, layer_name)
-
-# Layers 6-8 Seasonal covariate anomalies
+    create_index(gpkg_path, layer_name, 'comid')
+    add_view(gpkg_path, layer_name, 'contributing_area', 'featureid', 'comid')
+   
+    #cur_awm = area_weighted_mean(cur_anomalies[[c for c in cur_anomalies.columns if c[:2]!='n_']], frac_total_area, cur_contrib['HUC12'])
+    cur_awm = area_weighted_mean(cur_anomalies, frac_total_area, cur_contrib['HUC12'])
+    layer_name = cur_layer + f'_{e}' + '_byHUC12' if e=='2010s' else cur_layer + f'_anomalies_{e}' + '_byHUC12'
+    layer_to_gpkg(cur_comids, cur_awm, gpkg_path, layer_name, check = False)
+    create_index(gpkg_path, layer_name, 'HUC12')
+    add_view(gpkg_path, layer_name, 'HUC12_boundaries', 'HUC12', 'HUC12')
+    
+# Layers 10-12: Seasonal covariate anomalies (13-15 by HUC12)
 cur_layer = 'temporal_covariates'
 cov_anomalies = getSeasonalAnomalies(cov_df, baseline_period = periods[epochs[0]], 
-                                    anomaly_periods = [periods[key] for key in (epochs[1], epochs[2])], cols = ['air_temp_ws', 'NWM_flow_log', 'SWE'])
+                                    anomaly_periods = [periods[key] for key in (epochs[1], epochs[2])], cols = anom_covs)
 cov_epoch_frames = parse_epochs(cov_anomalies, epochs = epochs)
+
+
 for e in epochs:
     cur_anomalies = cov_epoch_frames[e]
     layer_name = cur_layer +f'_{e}' if e=='2010s' else cur_layer + f'_anomalies_{e}'
     layer_to_gpkg(cur_comids, cur_anomalies, gpkg_path, layer_name)
+    create_index(gpkg_path, layer_name, 'comid')
+    add_view(gpkg_path, layer_name, 'contributing_area', 'featureid', 'comid')
+
     
-# Layer 9: HUC 12 geometries and area
+    cur_awm = area_weighted_mean(cur_anomalies, frac_total_area, cur_contrib['HUC12'])
+    layer_name = cur_layer +f'_{e}' + '_byHUC12' if e=='2010s' else cur_layer + f'_anomalies_{e}' + '_byHUC12'
+    layer_to_gpkg(cur_comids, cur_awm, gpkg_path, layer_name, check = False)
+    create_index(gpkg_path, layer_name, 'HUC12')
+    add_view(gpkg_path, layer_name, 'HUC12_boundaries', 'HUC12', 'HUC12')
+
+stop
+#%% Import geojson
+
+print('\n\nImporting project bounds as project_bounds.geojson ...')
+proj_bounds = os.path.join(geojson_dir, f'{curhuc}_bounds.geojson')
+shutil.copy(proj_bounds, os.path.join(proj_path, 'project_bounds.geojson'))
+print('Done.')
+
+#%% Build project rs.xml
+
+rs_project = Project(
+       project_name = '',
+       description=f"""This project was generated by scraping metrics from {len(projects)}
+                        Riverscapes Metric Engine projects together, using the scrape_rme2.py script.
+                        The project bounds are the union of the bounds of the individual projects.""",
+       meta_data=MetaData([
+           Meta('Date Created',  str(datetime.datetime.now().isoformat()), type='isodate', ext=None),
+           Meta('HUC', curhuc),
+           Meta('Hydrologic Unit Code', curhuc),
+           Meta('Watershed Name', hucname),
+       ]),
+       bounds=ProjectBounds(
+           Coords(centroid[0], centroid[1]),
+           BoundingBox(bounding_rect[0], bounding_rect[1], bounding_rect[2], bounding_rect[3]),
+           os.path.basename(output_bounds_path)
+       ),
+       realizations=[Realization(
+           name='Realization1',
+           xml_id='REALIZATION1',
+          date_created=datetime.datetime.now(),
+          product_version='1.0.0',
+          datasets=[
+              Geopackage(
+                  name= gpkg_filename,
+                  xml_id='RME',
+                  path=os.path.relpath(gpkg_path, proj_path),
+                  layers=get_datasets(gpkg_path)
+              ),
+              Dataset(
+                  xml_id='README',
+                  name='README',
+                  description='This project was generated by scraping metrics from Riverscapes Metric Engine projects together, using the scrape_rme2.py script.',
+                  path=os.path.relpath(readme_path, project_dir),
+              ),
+              Dataset(
+                  xml_id='LOG',
+                  name='Lof File',
+                  description='Processing log file',
+                  path=os.path.relpath(log_path, project_dir),
+              ),
+          ]
+      )]
+  )
+
+merged_project_xml = os.path.join(proj_path, 'project.rs.xml')
+rs_project.write(merged_project_xml)
+print(f'Project XML file written to {merged_project_xml}')
+
+#%%
+runtime = datetime.datetime.now() - start
+print(f'\n\n\n----------  DONE. Runtime {runtime.seconds // 3600}:{runtime.seconds // 60}:{runtime.seconds % 60} hours  ---------')
+#%%
+stop
+lyr3_gdf = gpd.GeoDataFrame(lyr3)
+huc10_boundary = lyr3_gdf.dissolve()
+h10_buffer = huc10_boundary.buffer(1, single_sided = True).plot()
+huc10_boundary['huc10'] = curhuc
+join = gpd.sjoin(contrib_areas, huc10_boundary, how = 'left', predicate="intersects")
+cur_areas = join.loc[~join.huc10.isnull()]
+
+
+fig, ax = plt.subplots()
+
+
+lyr3_gdf.plot(edgecolor = 'k', facecolor = 'None', lw = 2, ax = ax)
+lyr2.plot(lw = 1, alpha = 0.5,  ax = ax)
+
+for x, y, label in zip(lyr3_gdf.centroid.x, lyr3_gdf.centroid.y, lyr3_gdf.index):
+    ax.text(x, y, label, fontsize=8, ha='center', va='center')
+
+#%%
+h10_buffer = huc10_boundary.to_crs('EPSG:3857').buffer(1000).to_crs(contrib_areas.crs)
+
+fig, ax = plt.subplots()
+
+xmin, ymin, xmax, ymax = huc10_boundary.total_bounds
+ax = huc10_boundary.plot(facecolor = 'None', edgecolor = 'r', lw = 2)
+#contrib_areas.plot(ax = ax, edgecolor = 'w', alpha = 0.5, lw = 1.0)
+contrib_areas.loc[contrib_areas.FEATUREID.isin(cur_comids)].plot(
+    ax = ax, edgecolor = 'w', facecolor = 'blue', alpha = 0.5, lw = 1.0)
+#contrib_areas.loc[contrib_areas.FEATUREID.isin(found_comids)].plot(ax = ax, facecolor = 'yellow', edgecolor = 'w', alpha = 0.5, lw = 1.0)
+inbuff.plot(ax = ax, facecolor = 'yellow', alpha = 0.25, edgecolor = 'k')
+contrib_areas.clip(huc10_boundary).plot(ax = ax, facecolor = 'None', edgecolor = 'g', lw = 0.5)
+h10_buffer.plot(ax = ax, edgecolor = 'orange', facecolor = 'None')
+ax.set_xlim(xmin, xmax)
+ax.set_ylim(ymin, ymax)
+
+
+#%%
+for x, y, label in zip(lyr3_gdf.centroid.x, lyr3_gdf.centroid.y, lyr3_gdf.index):
+    ax.text(x, y, label, fontsize=8, ha='center', va='center')
+
+#%% 
+
 
