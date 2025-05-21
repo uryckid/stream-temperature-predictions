@@ -39,25 +39,25 @@ from rsxml.project_xml import (
 import sys
 
 
-def create_proj_dir(huc6, new_dir):
-    path = os.path.join(outdir, f'retro/{huc6}/{new_dir}')
+def create_proj_dir(huc6, new_dir, ref_path):
+    path = os.path.join(ref_path, f'{huc6}/{new_dir}')
     
     if not os.path.exists(path):
         os.makedirs(path)
-        print(f'Project directory created: {os.path.relpath(path)}')
-    else: print(f'Project directory exists: {os.path.relpath(path)}')
+        print(f'Project directory created: {os.path.relpath(path, ref_path)}')
+    else: print(f'Project directory exists: {os.path.relpath(path, ref_path)}')
     return(path)
 
-def add_file(filepath, dest):
+def add_file(filepath, dest, ref_path = None):
     filename =  filepath.split("/")[-1]
     shutil.copy(filepath, dest)
-    return(print(f'\n{filename} successfully added to {os.path.relpath(dest)}.'))
+    return(print(f'\n{filename} successfully added to {os.path.relpath(dest, ref_path)}.'))
     
 def add_database(df, db_name, db_path, zip_file = True):
     connection= sqlite3.connect(db_path)
     df.to_sql(db_name, connection, if_exists = 'replace')
     connection.close()
-    print('Database created succesfully')
+    print('Database created successfully')
     if zip_file:
         zip_path = db_path + '.zip'
         try:
@@ -171,17 +171,19 @@ def getSeasonalAnomalies(indf, baseline_period: range, anomaly_periods: list, co
             cur_ens_med['doy'] = cur_ens_med.index.dayofyear
             cur_ens_med['season'] = cur_ens_med['doy'].apply(assign_season)
             for col in cols: cur_ens_med[f'n_{col}'] = cur_ens_med[col].notnull().astype(int)
-    
-            if 'cov.SWE' in cols:
+            new_cols = cols
+            
+            if 'SWE' in cols:
                 #Use water year for swe
                 cur_swe = cur_ens_med.copy()
                 cur_swe['WY'] = cur_swe.index.to_series().apply(assign_water_year)
-        
+                
                 # Reclassify end of Sept as summer (pull it into summer of WY[y-1])
-                cur_swe.loc[cur_swe.index.month == 9, 'season'] = 'summer'        
-                swe_cum = cur_swe[['cov.SWE', 'WY', 'season', 'n_cov.SWE']].groupby(['WY', 'season']).sum()
-    
-            
+                cur_swe.loc[cur_swe.index.month == 9, 'season'] = 'summer'  
+                swe_cum = cur_swe[['SWE', 'WY', 'season', 'n_SWE']].groupby(['WY', 'season']).sum()
+                
+                new_cols = [x.replace('SWE', 'SwS') for x in cols]
+                
             cur_anomalies = {}
             
             #Determine baseline (median)
@@ -189,14 +191,14 @@ def getSeasonalAnomalies(indf, baseline_period: range, anomaly_periods: list, co
             baseline = cur_met[cur_met.index.year.isin(baseline_period)].groupby('season').median()
             for col in cols: 
                 baseline[f'n_{col}'] = cur_met[cur_met.index.year.isin(baseline_period)].groupby('season').sum()[f'n_{col}'] # n
-                
-            if 'cov.SWE' in cols:
+
+            if 'SWE' in cols:
                 swe_df = swe_cum.loc[pd.IndexSlice[baseline_period], :, :]                
-                baseline['cov.SWE'] = swe_df.groupby(level=1).median()['cov.SWE']
-                baseline['n_cov.SWE'] = swe_df.groupby(level=1).sum()['n_cov.SWE'] # n
+                baseline['SwS'] = swe_df.groupby(level=1).median()['SWE']/1000 # mm to m
+                baseline['n_SwS'] = swe_df.groupby(level=1).sum()['n_SWE'] # n
             
             
-            baseline_trim = pd.concat([baseline[[col, f'n_{col}']] for col in cols], axis = 1)
+            baseline_trim = pd.concat([baseline[[col, f'n_{col}']] for col in new_cols], axis = 1)
             
             cur_anomalies[f'{baseline_period[0]}s'] = baseline_trim
     
@@ -205,13 +207,13 @@ def getSeasonalAnomalies(indf, baseline_period: range, anomaly_periods: list, co
                 cur_anoms = cur_ens_med[cur_ens_med.index.year.isin(per)].groupby('season').median().subtract(baseline)
                 for col in cols: 
                     cur_anoms[f'n_{col}'] = cur_ens_med[cur_ens_med.index.year.isin(per)].groupby('season').sum()[f'n_{col}'] # n
-    
-                if 'cov.SWE' in cols:
+                        
+                if 'SWE' in cols:
                     swe = swe_cum.loc[pd.IndexSlice[per], :, :]                
-                    cur_anoms['cov.SWE'] = swe.groupby(level=1).median()['cov.SWE'].subtract(baseline['cov.SWE'])
-                    cur_anoms['n_cov.SWE'] = swe.groupby(level=1).sum()['n_cov.SWE'] # n
+                    cur_anoms['SwS'] = ((swe.groupby(level=1).median()['SWE'])/1000).subtract(baseline['SwS'])
+                    cur_anoms['n_SwS'] = swe.groupby(level=1).sum()['n_SWE'] # n
                 
-                cur_anoms_trim = pd.concat([cur_anoms[[col, f'n_{col}']] for col in cols], axis = 1)
+                cur_anoms_trim = pd.concat([cur_anoms[[col, f'n_{col}']] for col in new_cols], axis = 1)
                 
                 cur_anomalies[f'{per[0]}s'] = cur_anoms_trim
             
@@ -268,30 +270,30 @@ def create_index(dbpath, layer, ixname):
             return(print(f'\nix created: {ixname}'))
         except: return(print('\nFailed to create index on {ixname}'))
 
-def add_view(dbpath, layer_name, feature_table, f_index, a_index):
+def add_view(dbpath, layer_name, feature_table, f_index, a_index, shape = 'polygons'):
     conn = sqlite3.connect(dbpath)
     with conn:
         curs = conn.cursor()
         try: 
             curs.execute(f'''
-                         CREATE VIEW vw_{layer_name} AS 
+                         CREATE VIEW vw_{layer_name}_{shape} AS 
                          SELECT f.fid, f.geom, a.* 
                          FROM {feature_table} AS f INNER JOIN {layer_name} a
                          ON f.{f_index} = a.{a_index};''')
             
             curs.execute(f'''
                          INSERT INTO gpkg_contents (table_name, data_type, identifier, min_x, min_y, max_x, max_y, srs_id) 
-                         SELECT 'vw_{layer_name}', data_type, 'vw_{layer_name}', min_x, min_y, max_x, max_y, srs_id 
+                         SELECT 'vw_{layer_name}_{shape}', data_type, 'vw_{layer_name}_{shape}', min_x, min_y, max_x, max_y, srs_id 
                          FROM gpkg_contents WHERE table_name = '{feature_table}';''')
             
             curs.execute(f'''
                          INSERT INTO gpkg_geometry_columns (table_name, column_name, geometry_type_name, srs_id, z, m)
-                         SELECT 'vw_{layer_name}', column_name, geometry_type_name, srs_id, z, m
+                         SELECT 'vw_{layer_name}_{shape}', column_name, geometry_type_name, srs_id, z, m
                          FROM gpkg_geometry_columns
                          WHERE table_name = '{feature_table}';''')         
 
             conn.commit()
-            print(f'\nSuccesfully added spatial view: vw_{layer_name}')        
+            print(f'\nSuccesfully added spatial view: vw_{layer_name}_{shape}')        
             
         except: pass
     return
@@ -299,7 +301,6 @@ def add_view(dbpath, layer_name, feature_table, f_index, a_index):
 def get_datasets(output_gpkg: str):
    """
    Returns a list of the datasets from the output GeoPackage.
-   These are the spatial views that are created from the igos and dgos tables.
    """
 
    conn = sqlite3.connect(output_gpkg)
@@ -318,10 +319,10 @@ def get_datasets(output_gpkg: str):
 #%%
 # USER INPUTS
 proj_type = 'Stream_Temperature_Retrospective_'
-timeframe = '1950-2020_'
+timeframe = '1990-2021_'
 
 # Required
-curhuc = '1701010107' #huc10
+curhuc = '1701010108' #huc10
 huc8 = curhuc[:8]
 proj_crs = 'EPSG:9674' # NAD83 / USFS R6 Albers projection, Oregon and Washington
 
@@ -345,7 +346,7 @@ anom_covs = ['air_temp_ws', 'NWM_flow_log', 'SWE']
 
 #%% Define directories 
 
-outdir = os.path.join(datadir, 'Outputs/')
+outdir = os.path.join(datadir, 'Outputs/retro/')
 tempdir = os.path.join(datadir, 'preds_retro/')
 nhddir = os.path.join(datadir, 'NHDPlusPN/NHDPlus17/')
 
@@ -372,154 +373,165 @@ h10name = h10name.replace(" ","_")
 #%% Create project directory and add daily temperature and covariate databases
 
 proj_name = proj_type + timeframe + h10name
-proj_path = create_proj_dir(huc8[:6], os.path.join(proj_name))
-#sys.stdout = open(os.path.join(proj_path, 'processing.log'),'wt')
-start = datetime.datetime.now()
-print(start.strftime("%Y-%m-%d %H:%M:%S"))
-
-# Add README
-add_file(os.path.join('DATA', 'preds_retro', 'readme.txt'), proj_path)
-
-# Add covariate metadata
-add_file(os.path.join('DATA', 'covariate_metadata.csv'), proj_path)
-
-# Temperature
-temp_file = os.path.join(tempdir, 'predictions_temperature', f'st_pred_{curhuc}.csv')
-temp_df = create_database_file(temp_file, date_col = 'tim.date', proj_path = proj_path, 
-                               db_type = 'stream_temperature', add_cols = None, compression = None, 
-                               overwrite = overwrite)
-
-# Covariates
-cov_file = os.path.join(tempdir, 'predictions_covariates', 'cov_csvs', f'{curhuc}_covs.zip')
-cov_df = create_database_file(cov_file, date_col = 'date', proj_path = proj_path,
-                              db_type = 'covariates', add_cols = temp_df[['comid', 'date', 'antec_air_temp', 'std_mean_flow']], 
-                              compression = 'zip', overwrite = overwrite)
-
-#%% Build geopackage
-
-gpkg_filename = 'seasonal_anomalies_spatial_covariates.gpkg'
-gpkg_path = os.path.join(proj_path, gpkg_filename)
-
-cur_comids = list(set(cov_df.comid.unique()).union(set(temp_df.comid.unique())))
-cur_comids.sort()
-
-# Layer: Contributing area
-cur_layer = 'contributing_area'
-cur_contrib = contrib_areas.set_index('featureid').loc[cur_comids][['area_sqkm', 'geometry']]
-cur_huc12s = huc12s.loc[huc12s.HUC_8 == huc8] # Constrain search area
-matched_h12s = find_containing_huc12(cur_huc12s, cur_contrib)
-cur_contrib['HUC12'] = cur_contrib.index.map(matched_h12s.set_index('featureid')['HUC12'])
-lyr2 = cur_contrib[['HUC12', 'area_sqkm', 'geometry']]
-layer_to_gpkg(cur_comids, lyr2, gpkg_path, cur_layer)
-for ix in ['featureid', 'HUC12']:
-    create_index(gpkg_path, cur_layer, ix)
-
-
-# Layer: Flowlines
-cur_layer = 'flowlines'
-cur_flowlines = flowlines.set_index('comid').loc[cur_comids][['fcode', 'geometry']]
-cur_flowlines['HUC12'] = cur_flowlines.index.map(matched_h12s.set_index('featureid')['HUC12'])
-newcols = [c for c in cur_flowlines.columns if c != 'geometry'] + ['geometry']
-cur_flowlines = cur_flowlines[newcols]
-layer_to_gpkg(cur_comids, cur_flowlines, gpkg_path, cur_layer)
-for ix in ['comid', 'fcode', 'HUC12']:
-    create_index(gpkg_path, cur_layer, ix)
-  
+proj_path = create_proj_dir(huc8[:6], proj_name, outdir)
+log_path = os.path.join(proj_path, 'processing.log')
+terminal_stdout = sys.stdout
+with open(log_path, 'w') as f:
+    sys.stdout = f
+    #sys.stdout = open(log_path,'w')
+    start = datetime.datetime.now()
+    print(start.strftime("%Y-%m-%d %H:%M:%S"))
+    print(f'\nBuilding {proj_type} for {h10name}')
     
-# Layer 2: HUC 12 geometries and area
-cur_layer = 'HUC12_boundaries'
-cur_boundaries = cur_huc12s.set_index('HUC12').loc[matched_h12s['HUC12'].unique()][['name','geometry']]
-area_sqkm = (cur_boundaries.to_crs(proj_crs).area).multiply(1e-6)
-lyr3 = pd.concat([area_sqkm.rename('area_sqkm'), cur_boundaries], axis =1)
-layer_to_gpkg(cur_comids, lyr3, gpkg_path, cur_layer, check=False)
-create_index(gpkg_path, cur_layer, 'HUC12')
-
-# Layer 3: Fcode + spatial covariates
-cur_layer = 'spatial_covariates'
-cur_spatial = spatial_covs.loc[cur_comids]
-lyr1 = pd.concat([cur_flowlines['fcode'], cur_spatial], axis = 1)
-layer_to_gpkg(cur_comids, lyr1, gpkg_path, cur_layer)
-for ix in ['comid', 'fcode']:
-    create_index(gpkg_path, cur_layer, ix)
-
-### ADD WEIGHTED MEAN SPATIAL COVARIATES??? ###
-
-
-# Calculate fraction of HUC_12 area
-cur_area = lyr2[['HUC12', 'area_sqkm']]
-total_area = cur_area.groupby('HUC12').sum()
-cur_area['h12_area'] = cur_area.HUC12.map(
-    pd.Series(total_area.area_sqkm.values, index = total_area.index))
-frac_total_area = cur_area.area_sqkm.divide(cur_area.h12_area)
-
-# Layers 4-6: Seasonal temperature anomalies (7-9 by HUC12)
-cur_layer = 'stream_temperature'
-epochs = ['2010s', '2000s', '1990s']
-temp_anomalies = getSeasonalAnomalies(temp_df, baseline_period = periods[epochs[0]], 
-                                    anomaly_periods = [periods[key] for key in (epochs[1], epochs[2])], cols = ['stream_temp'])
-temp_epoch_frames = parse_epochs(temp_anomalies, epochs = epochs)
-
-
-for e in epochs:
-    cur_anomalies = temp_epoch_frames[e]
-    layer_name = cur_layer + f'_{e}' if e=='2010s' else cur_layer + f'_anomalies_{e}'
-    layer_to_gpkg(cur_comids, cur_anomalies, gpkg_path, layer_name)
-    create_index(gpkg_path, layer_name, 'comid')
-    add_view(gpkg_path, layer_name, 'contributing_area', 'featureid', 'comid')
-   
-    #cur_awm = area_weighted_mean(cur_anomalies[[c for c in cur_anomalies.columns if c[:2]!='n_']], frac_total_area, cur_contrib['HUC12'])
-    cur_awm = area_weighted_mean(cur_anomalies, frac_total_area, cur_contrib['HUC12'])
-    layer_name = cur_layer + f'_{e}' + '_byHUC12' if e=='2010s' else cur_layer + f'_anomalies_{e}' + '_byHUC12'
-    layer_to_gpkg(cur_comids, cur_awm, gpkg_path, layer_name, check = False)
-    create_index(gpkg_path, layer_name, 'HUC12')
-    add_view(gpkg_path, layer_name, 'HUC12_boundaries', 'HUC12', 'HUC12')
+    # Add README
+    readme_path = os.path.join('DATA', 'preds_retro', 'readme.txt')
+    add_file(readme_path, proj_path, outdir)
     
-# Layers 10-12: Seasonal covariate anomalies (13-15 by HUC12)
-cur_layer = 'temporal_covariates'
-cov_anomalies = getSeasonalAnomalies(cov_df, baseline_period = periods[epochs[0]], 
-                                    anomaly_periods = [periods[key] for key in (epochs[1], epochs[2])], cols = anom_covs)
-cov_epoch_frames = parse_epochs(cov_anomalies, epochs = epochs)
-
-
-for e in epochs:
-    cur_anomalies = cov_epoch_frames[e]
-    layer_name = cur_layer +f'_{e}' if e=='2010s' else cur_layer + f'_anomalies_{e}'
-    layer_to_gpkg(cur_comids, cur_anomalies, gpkg_path, layer_name)
-    create_index(gpkg_path, layer_name, 'comid')
-    add_view(gpkg_path, layer_name, 'contributing_area', 'featureid', 'comid')
-
+    # Add covariate metadata
+    add_file(os.path.join('DATA', 'covariate_metadata.csv'), proj_path, outdir)
     
-    cur_awm = area_weighted_mean(cur_anomalies, frac_total_area, cur_contrib['HUC12'])
-    layer_name = cur_layer +f'_{e}' + '_byHUC12' if e=='2010s' else cur_layer + f'_anomalies_{e}' + '_byHUC12'
-    layer_to_gpkg(cur_comids, cur_awm, gpkg_path, layer_name, check = False)
-    create_index(gpkg_path, layer_name, 'HUC12')
-    add_view(gpkg_path, layer_name, 'HUC12_boundaries', 'HUC12', 'HUC12')
-
-stop
-#%% Import geojson
-
-print('\n\nImporting project bounds as project_bounds.geojson ...')
-proj_bounds = os.path.join(geojson_dir, f'{curhuc}_bounds.geojson')
-shutil.copy(proj_bounds, os.path.join(proj_path, 'project_bounds.geojson'))
-print('Done.')
-
+    # Temperature
+    temp_file = os.path.join(tempdir, 'predictions_temperature', f'st_pred_{curhuc}.csv')
+    temp_df = create_database_file(temp_file, date_col = 'tim.date', proj_path = proj_path, 
+                                   db_type = 'stream_temperature', add_cols = None, compression = None, 
+                                   overwrite = overwrite)
+    
+    # Covariates
+    cov_file = os.path.join(tempdir, 'predictions_covariates', 'cov_csvs', f'{curhuc}_covs.zip')
+    cov_df = create_database_file(cov_file, date_col = 'date', proj_path = proj_path,
+                                  db_type = 'covariates', add_cols = temp_df[['comid', 'date', 'antec_air_temp', 'std_mean_flow']], 
+                                  compression = 'zip', overwrite = overwrite)
+    
+    #%% Build geopackage
+    
+    gpkg_filename = 'seasonal_anomalies_spatial_covariates.gpkg'
+    gpkg_path = os.path.join(proj_path, gpkg_filename)
+    
+    cur_comids = list(set(cov_df.comid.unique()).union(set(temp_df.comid.unique())))
+    cur_comids.sort()
+    
+    # Layer: Contributing area
+    cur_layer = 'contributing_area'
+    cur_contrib = contrib_areas.set_index('featureid').loc[cur_comids][['area_sqkm', 'geometry']]
+    centroid = cur_contrib.union_all().centroid
+    bounding_rect = cur_contrib.total_bounds
+    cur_huc12s = huc12s.loc[huc12s.HUC_8 == huc8] # Constrain search area
+    matched_h12s = find_containing_huc12(cur_huc12s, cur_contrib)
+    cur_contrib['HUC12'] = cur_contrib.index.map(matched_h12s.set_index('featureid')['HUC12'])
+    lyr2 = cur_contrib[['HUC12', 'area_sqkm', 'geometry']]
+    layer_to_gpkg(cur_comids, lyr2, gpkg_path, cur_layer)
+    for ix in ['featureid', 'HUC12']:
+        create_index(gpkg_path, cur_layer, ix)
+    
+    
+    # Layer: Flowlines
+    cur_layer = 'flowlines'
+    cur_flowlines = flowlines.set_index('comid').loc[cur_comids][['fcode', 'geometry']]
+    cur_flowlines['HUC12'] = cur_flowlines.index.map(matched_h12s.set_index('featureid')['HUC12'])
+    newcols = [c for c in cur_flowlines.columns if c != 'geometry'] + ['geometry']
+    cur_flowlines = cur_flowlines[newcols]
+    layer_to_gpkg(cur_comids, cur_flowlines, gpkg_path, cur_layer)
+    for ix in ['comid', 'fcode', 'HUC12']:
+        create_index(gpkg_path, cur_layer, ix)
+      
+        
+    # Layer 2: HUC 12 geometries and area
+    cur_layer = 'HUC12_boundaries'
+    cur_boundaries = cur_huc12s.set_index('HUC12').loc[matched_h12s['HUC12'].unique()][['name','geometry']]
+    area_sqkm = (cur_boundaries.to_crs(proj_crs).area).multiply(1e-6)
+    lyr3 = pd.concat([area_sqkm.rename('area_sqkm'), cur_boundaries], axis =1)
+    layer_to_gpkg(cur_comids, lyr3, gpkg_path, cur_layer, check=False)
+    create_index(gpkg_path, cur_layer, 'HUC12')
+    
+    # Layer 3: Fcode + spatial covariates
+    cur_layer = 'spatial_covariates'
+    cur_spatial = spatial_covs.loc[cur_comids]
+    lyr1 = pd.concat([cur_flowlines['fcode'], cur_spatial], axis = 1)
+    layer_to_gpkg(cur_comids, lyr1, gpkg_path, cur_layer)
+    for ix in ['comid', 'fcode']:
+        create_index(gpkg_path, cur_layer, ix)
+    
+    
+    # Calculate fraction of HUC_12 area
+    cur_area = lyr2[['HUC12', 'area_sqkm']]
+    total_area = cur_area.groupby('HUC12').sum()
+    cur_area['h12_area'] = cur_area.HUC12.map(
+        pd.Series(total_area.area_sqkm.values, index = total_area.index))
+    frac_total_area = cur_area.area_sqkm.divide(cur_area.h12_area)
+    
+    # Layers 4-6: Seasonal temperature anomalies (7-9 by HUC12)
+    cur_layer = 'stream_temperature'
+    epochs = ['2010s', '2000s', '1990s']
+    temp_anomalies = getSeasonalAnomalies(temp_df, baseline_period = periods[epochs[0]], 
+                                        anomaly_periods = [periods[key] for key in (epochs[1], epochs[2])], cols = ['stream_temp'])
+    temp_epoch_frames = parse_epochs(temp_anomalies, epochs = epochs)
+    
+    
+    for e in epochs:
+        cur_anomalies = temp_epoch_frames[e]
+        layer_name = cur_layer + f'_{e}' if e=='2010s' else cur_layer + f'_anomalies_{e}'
+        layer_to_gpkg(cur_comids, cur_anomalies, gpkg_path, layer_name)
+        create_index(gpkg_path, layer_name, 'comid')
+        add_view(gpkg_path, layer_name, 'contributing_area', 'featureid', 'comid')
+        add_view(gpkg_path, layer_name, 'flowlines', 'comid', 'comid', shape = 'lines')
+    
+       
+        #cur_awm = area_weighted_mean(cur_anomalies[[c for c in cur_anomalies.columns if c[:2]!='n_']], frac_total_area, cur_contrib['HUC12'])
+        cur_awm = area_weighted_mean(cur_anomalies, frac_total_area, cur_contrib['HUC12'])
+        layer_name = cur_layer + f'_{e}' + '_byHUC12' if e=='2010s' else cur_layer + f'_anomalies_{e}' + '_byHUC12'
+        layer_to_gpkg(cur_comids, cur_awm, gpkg_path, layer_name, check = False)
+        create_index(gpkg_path, layer_name, 'HUC12')
+        add_view(gpkg_path, layer_name, 'HUC12_boundaries', 'HUC12', 'HUC12')
+    
+    # Layers 10-12: Seasonal covariate anomalies (13-15 by HUC12)
+    cur_layer = 'temporal_covariates'
+    cov_anomalies = getSeasonalAnomalies(cov_df, baseline_period = periods[epochs[0]], 
+                                        anomaly_periods = [periods[key] for key in (epochs[1], epochs[2])], cols = anom_covs)
+    cov_epoch_frames = parse_epochs(cov_anomalies, epochs = epochs)
+    
+    
+    for e in epochs:
+        cur_anomalies = cov_epoch_frames[e]
+        layer_name = cur_layer +f'_{e}' if e=='2010s' else cur_layer + f'_anomalies_{e}'
+        layer_to_gpkg(cur_comids, cur_anomalies, gpkg_path, layer_name)
+        create_index(gpkg_path, layer_name, 'comid')
+        add_view(gpkg_path, layer_name, 'contributing_area', 'featureid', 'comid')
+        add_view(gpkg_path, layer_name, 'flowlines', 'comid', 'comid', shape = 'lines')
+    
+        
+        cur_awm = area_weighted_mean(cur_anomalies, frac_total_area, cur_contrib['HUC12'])
+        layer_name = cur_layer +f'_{e}' + '_byHUC12' if e=='2010s' else cur_layer + f'_anomalies_{e}' + '_byHUC12'
+        layer_to_gpkg(cur_comids, cur_awm, gpkg_path, layer_name, check = False)
+        create_index(gpkg_path, layer_name, 'HUC12')
+        add_view(gpkg_path, layer_name, 'HUC12_boundaries', 'HUC12', 'HUC12')
+    
+    #%% Import geojson
+    
+    print('\n\nImporting project bounds as project_bounds.geojson ...')
+    proj_bounds = os.path.join(geojson_dir, f'{curhuc}_bounds.geojson')
+    dest_filename = 'project_bounds.geojson'
+    try:
+        bounds = shutil.copy(proj_bounds, os.path.join(proj_path, dest_filename))
+        print(f'\n{dest_filename} successfully added to {os.path.relpath(proj_path, outdir)}')
+    except: print(f'Failed to add {dest_filename}')
+    sys.stdout =terminal_stdout
 #%% Build project rs.xml
 
 rs_project = Project(
-       project_name = '',
-       description=f"""This project was generated by scraping metrics from {len(projects)}
-                        Riverscapes Metric Engine projects together, using the scrape_rme2.py script.
-                        The project bounds are the union of the bounds of the individual projects.""",
+       project_name = proj_name,
+       description= f"""Predicted stream temperatures and covariates for {len(cur_comids)} reaches for each day between 1/1/1990 and 9/30/2021, 
+       produced from a statistical model described in Siegel et al. (2023).""",
        meta_data=MetaData([
            Meta('Date Created',  str(datetime.datetime.now().isoformat()), type='isodate', ext=None),
            Meta('HUC', curhuc),
            Meta('Hydrologic Unit Code', curhuc),
-           Meta('Watershed Name', hucname),
+           Meta('Watershed Name', h10name),
+           Meta('reach IDs (NHDv2)', cur_comids),
        ]),
        bounds=ProjectBounds(
-           Coords(centroid[0], centroid[1]),
+           Coords(centroid.x, centroid.y),
            BoundingBox(bounding_rect[0], bounding_rect[1], bounding_rect[2], bounding_rect[3]),
-           os.path.basename(output_bounds_path)
+           os.path.basename(proj_bounds)
        ),
        realizations=[Realization(
            name='Realization1',
@@ -529,21 +541,21 @@ rs_project = Project(
           datasets=[
               Geopackage(
                   name= gpkg_filename,
-                  xml_id='RME',
+                  xml_id='OUTPUT',
                   path=os.path.relpath(gpkg_path, proj_path),
                   layers=get_datasets(gpkg_path)
               ),
               Dataset(
                   xml_id='README',
                   name='README',
-                  description='This project was generated by scraping metrics from Riverscapes Metric Engine projects together, using the scrape_rme2.py script.',
-                  path=os.path.relpath(readme_path, project_dir),
+                  description='Description of project and data files',
+                  path=os.path.relpath(readme_path, proj_path),
               ),
               Dataset(
                   xml_id='LOG',
-                  name='Lof File',
+                  name='Log File',
                   description='Processing log file',
-                  path=os.path.relpath(log_path, project_dir),
+                  path=os.path.relpath(log_path, proj_path),
               ),
           ]
       )]
@@ -556,47 +568,4 @@ print(f'Project XML file written to {merged_project_xml}')
 #%%
 runtime = datetime.datetime.now() - start
 print(f'\n\n\n----------  DONE. Runtime {runtime.seconds // 3600}:{runtime.seconds // 60}:{runtime.seconds % 60} hours  ---------')
-#%%
-stop
-lyr3_gdf = gpd.GeoDataFrame(lyr3)
-huc10_boundary = lyr3_gdf.dissolve()
-h10_buffer = huc10_boundary.buffer(1, single_sided = True).plot()
-huc10_boundary['huc10'] = curhuc
-join = gpd.sjoin(contrib_areas, huc10_boundary, how = 'left', predicate="intersects")
-cur_areas = join.loc[~join.huc10.isnull()]
-
-
-fig, ax = plt.subplots()
-
-
-lyr3_gdf.plot(edgecolor = 'k', facecolor = 'None', lw = 2, ax = ax)
-lyr2.plot(lw = 1, alpha = 0.5,  ax = ax)
-
-for x, y, label in zip(lyr3_gdf.centroid.x, lyr3_gdf.centroid.y, lyr3_gdf.index):
-    ax.text(x, y, label, fontsize=8, ha='center', va='center')
-
-#%%
-h10_buffer = huc10_boundary.to_crs('EPSG:3857').buffer(1000).to_crs(contrib_areas.crs)
-
-fig, ax = plt.subplots()
-
-xmin, ymin, xmax, ymax = huc10_boundary.total_bounds
-ax = huc10_boundary.plot(facecolor = 'None', edgecolor = 'r', lw = 2)
-#contrib_areas.plot(ax = ax, edgecolor = 'w', alpha = 0.5, lw = 1.0)
-contrib_areas.loc[contrib_areas.FEATUREID.isin(cur_comids)].plot(
-    ax = ax, edgecolor = 'w', facecolor = 'blue', alpha = 0.5, lw = 1.0)
-#contrib_areas.loc[contrib_areas.FEATUREID.isin(found_comids)].plot(ax = ax, facecolor = 'yellow', edgecolor = 'w', alpha = 0.5, lw = 1.0)
-inbuff.plot(ax = ax, facecolor = 'yellow', alpha = 0.25, edgecolor = 'k')
-contrib_areas.clip(huc10_boundary).plot(ax = ax, facecolor = 'None', edgecolor = 'g', lw = 0.5)
-h10_buffer.plot(ax = ax, edgecolor = 'orange', facecolor = 'None')
-ax.set_xlim(xmin, xmax)
-ax.set_ylim(ymin, ymax)
-
-
-#%%
-for x, y, label in zip(lyr3_gdf.centroid.x, lyr3_gdf.centroid.y, lyr3_gdf.index):
-    ax.text(x, y, label, fontsize=8, ha='center', va='center')
-
-#%% 
-
 
