@@ -12,16 +12,16 @@ This script does stuff with stuff
 
 import os
 import datetime
-import time
 import pandas as pd
+import xarray as xr
 import shutil
 import sqlite3
 import zipfile
 import glob
 import numpy as np
 import geopandas as gpd
-from shapely import Point, LineString, Polygon
 from shapely import force_2d
+import gc
 from rsxml.project_xml import (
    Project,
    MetaData,
@@ -57,54 +57,75 @@ def add_file(filepath, dest, ref_path = None):
     return outpath
 
 def add_database(df, db_name, db_path, zip_file = True):
-    connection= sqlite3.connect(db_path)
-    df.to_sql(db_name, connection, if_exists = 'replace')
-    connection.close()
+    with sqlite3.connect(db_path) as connection:
+        cur = connection.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        print(cur.fetchall())
+        cur.execute(f'DROP TABLE IF EXISTS {db_name};')
+        df.to_sql(db_name, connection)
     print('Database created successfully')
     if zip_file:
         zip_path = db_path + '.zip'
         try:
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 zipf.write(db_path, os.path.basename(db_path))
-            os.remove(db_path)
+            #os.remove(db_path)
             print(f"Successfully zipped '{db_name}' to '{os.path.relpath(zip_path)}'")
         except:
             print(f"\nERROR zipping database {db_name}.")
     return
 
-def create_database_file(file, date_col, proj_path, db_type, 
+def create_database_file(file, proj_path, db_type, date_col = 'tim.date',
                          compression = None, add_cols = None, zip_file = True, overwrite = False, 
                          covs_to_count = ['air_temp_ws', 'NWM_flow_log', 'SWE']):
-    df = pd.read_csv(file, parse_dates = [date_col], compression = compression)
+    if file[-3:]=='.nc': 
+        ds = xr.open_dataset(file)
+    elif file[-8:]=='.pkl.zip':   
+        df = pd.read_pickle(file)
+        ds = xr.Dataset.from_dataframe(df.set_index(['date', 'COMID', 'GCM']))
+        print(f'Calculating ensemble mean {db_type}...')
+    else: 
+        print(f'Could not process {file}')
+        return
+    try:
+        ens_mean = ds.mean(dim='GCM')
+        ens_mean = ens_mean.assign_coords(GCM='mean')
+        ds_comb = xr.concat([ds, ens_mean], dim = 'GCM')
+        df = ds_comb[['COMID','date', 'GCM', *ds_comb.data_vars]].to_dataframe().reset_index()
+        print('Done.')
+    except: print('ERROR. Ensemble mean could not be calculated.')       
+        
     df.columns = df.columns.str.split(r'\.').str[-1].str.strip()
     df.rename({'COMID': 'comid', 'Huc10': 'HUC10'}, axis = 1, inplace = True)
     out_path = os.path.join(proj_path, f'daily_{db_type}.db')
 
-    if not (os.path.exists(out_path)) or (overwrite!=True):
-        if db_type == 'stream_temperature':
-            try:
-                dropcols = ['antec_air_temp', 'std_mean_flow']
-                df_trim = df.drop(dropcols, axis = 1, errors = 'ignore')
-                df_out = df_trim[['comid', 'date', 'stream_temp']]
-                datapoints = np.array(df_out.stream_temp.notnull().sum())
-                print(f'''\n\nStream temperature file processed: {len(df_out.comid.unique())} comids, {df_out.shape[0]} records, {datapoints} non-null stream temperature values.''')
-            except: print('\n\nStream temperature file FAILED.')
-       
-        else: 
-            try:
-                df = df.loc[:,~df.columns.duplicated()].copy()
-                df_out = pd.merge(df, add_cols, how = 'left', on=['comid','date'])
-                datapoints = np.array([df_out[f'{covs_to_count[0]}'].notnull().sum(), 
-                              df_out[f'{covs_to_count[1]}'].notnull().sum(),
-                              df_out[f'{covs_to_count[2]}'].notnull().sum()])
-                print(f'''\n\nTemporal covariates file processed: {len(df_out.comid.unique())} comids, {df_out.shape[0]} records;\nNumber covariate predictions {covs_to_count}: {datapoints}.''')
-            except: print('\n\nTemporal covariates file FAILED.')
-        
-        if datapoints.sum() > 0:
-            out_table = df_out.fillna(-999).infer_objects(copy=False).round(4)
+    if db_type == 'stream_temperature':
+        try: 
+            datapoints = np.array(df.stream_temp.notnull().sum())
+            df_out = df
+            print(f'''\n\nStream temperature file processed: {len(df_out.comid.unique())} comids, {df_out.shape[0]} records, {datapoints} non-null stream temperature values.''')
+        except: print('\n\nStream temperature file FAILED.')
+   
+    else: 
+        try:
+            df_out = df.loc[:,~df.columns.duplicated()].copy()
+            #df_out = pd.merge(df, add_cols, how = 'left', on=['comid','date'])
+            datapoints = np.array([df_out[f'{covs_to_count[0]}'].notnull().sum(), 
+                          df_out[f'{covs_to_count[1]}'].notnull().sum(),
+                          df_out[f'{covs_to_count[2]}'].notnull().sum()])
+            print(f'''\n\nTemporal covariates file processed: {len(df_out.comid.unique())} comids, {df_out.shape[0]} records;\nNumber covariate predictions {covs_to_count}: {datapoints}.''')
+        except: print('\n\nTemporal covariates file FAILED.')
+    all_objects = gc.get_objects()
+    print(f"Number of tracked objects: {len(all_objects)}")
+    gc.collect()
+    all_objects = gc.get_objects()
+    print(f"Number of tracked objects: {len(all_objects)}")
+    if datapoints.sum() > 0:
+        out_table = df_out.fillna(-999).infer_objects(copy=False).round(4)
+        if not (os.path.exists(out_path)) or (overwrite==True):
             print('Writing to database...')
             add_database(out_table, db_type, db_path = out_path, zip_file = zip_file)
-            if zip: out_path+='.zip'
+        if zip: out_path+='.zip'
     return df, datapoints, out_path
 
 def check_comids(comids, data, layer_name):
@@ -173,14 +194,57 @@ def assign_water_year(date):
         return (date.year +1)
     else: return date.year
     
-def getSeasonalAnomalies(indf, baseline_period: range, anomaly_periods: list, cols: list): # Add comid to groupby list to avoid looping over comids?
+def getSeasonalAnomalies(indf, baseline_period: range, anomaly_periods: list, cols: list):
     print(f'\n\nCalculating seasonal anomalies...')
+    #ds = xr.Dataset.from_dataframe(indf.set_index(['date', 'comid', 'GCM']))
+    df = indf.copy()
+    doy = df.date.dt.dayofyear
+    df['season'] = doy.apply(assign_season)
+    
+    #ds = ds.assign_coords(season=season)
+    for col in cols: df[f'n_{col}'] = df[col].notnull().astype(int)
+    new_cols = cols
+    
+    #if 'SWE' in cols:
+        
+    cur_anomalies = {}
+    
+    #Determine baseline (median)
+    #baseline = d.sel(date=slice(str(baseline_period[0]), str(baseline_period[-1])))
+    baseline_df = df[df.date.dt.year.isin(baseline_period)]
+    baseline = baseline_df.drop('date', axis =1).groupby(['comid', 'GCM', 'season']).quantile([0.1, 0.5, 0.9])
+
+    baseline2 = baseline_df.drop(['date','GCM'], axis =1).groupby(['comid', 'season']).quantile([0.2, 0.5, 0.8])
+    for col in cols: 
+        baseline2[f'n_{col}'] = baseline_df.groupby(['comid', 'season'])[f'n_{col}'].sum() # n
+
+    
+    
+    
+    
+    if 'SWE' in cols:
+        #Use water year for swe
+        cur_swe = cur_ens_med.copy()
+        cur_swe['WY'] = cur_swe.index.to_series().apply(assign_water_year)
+        
+        # Reclassify end of Sept as summer (pull it into summer of WY[y-1])
+        cur_swe.loc[cur_swe.index.month == 9, 'season'] = 'summer'  
+        swe_cum = cur_swe[['SWE', 'WY', 'season', 'n_SWE']].groupby(['WY', 'season']).sum(min_count=1)
+        
+        new_cols = [x.replace('SWE', 'SwS') for x in cols]
+    
+        
+ 
+    
+    
     try:
         cur_huc_anoms = []
         cur_comids = list(indf.comid.unique())
-        for j in cur_comids:
+        for j in cur_comids[:2]:
             #Assign water year and season
-            cur_df = indf[indf.comid == j][['date']+ cols]
+           
+            
+            cur_df = indf[indf.comid == j][['date']+ cols] # Need to account for GCM
             cur_ens_med = cur_df.groupby('date').median() # sets index to date
             cur_ens_med['doy'] = cur_ens_med.index.dayofyear
             cur_ens_med['season'] = cur_ens_med['doy'].apply(assign_season)
@@ -348,8 +412,11 @@ def get_datasets(output_gpkg: str):
 proj_type = 'Stream_Temperature_Retrospective_'
 timeframe = '1990-2021_'
 
+proj_type = 'Stream_Temperature_Projections_'
+timeframe = '1950-2099_'
+
 # Required
-curhuc = '1701010113' #huc10
+curhuc = '1706020102' #huc10
 huc8 = curhuc[:8]
 proj_crs = 'EPSG:9674' # NAD83 / USFS R6 Albers projection, Oregon and Washington
 
@@ -368,13 +435,16 @@ periods = {'2000s': list(range(2000, 2010)),
            '2050s': list(range(2050, 2060)), 
            '2080s': list(range(2080, 2090))}
 
-anom_covs = ['air_temp_ws', 'NWM_flow_log', 'SWE']
-
+anom_covs = ['air_temp_ws', 'Flow_log', 'SWE']
 
 #%% Define directories 
 
-outdir = os.path.join(datadir, 'Outputs/retro/')
-tempdir = os.path.join(datadir, 'preds_retro/')
+#outdir = os.path.join(datadir, 'Outputs/retro/')
+#tempdir = os.path.join(datadir, 'preds_retro/')
+
+outdir = os.path.join(datadir, 'Outputs/gcms/')
+tempdir = os.path.join(datadir, 'preds_GCM/')
+
 nhddir = os.path.join(datadir, 'NHDPlusPN/NHDPlus17/')
 
 #%% Load in geometry files
@@ -394,6 +464,8 @@ contrib_areas.rename({'FEATUREID': 'featureid', 'AreaSqKM': 'area_sqkm'}, axis =
 
 huc12s_file = os.path.join(nhddir, 'WBDSnapshot/WBD/WBD_Subwatershed.dbf')
 huc12s = gpd.read_file(huc12s_file, columns = ['OBJECTID', 'HUC_12', 'HUC_8','HU_12_NAME','HUC_10','HU_10_NAME','geometry'])
+try: huc12s = huc12s[huc12s.HUC_10 == curhuc]
+except: pass
 huc12s.rename({'HUC_12': 'HUC12', 'HU_12_NAME': 'name'}, axis = 1, inplace = True)
 h10name_hr = huc12s.loc[huc12s.HUC_10 == curhuc]['HU_10_NAME'].mode()[0]
 h10name = h10name_hr.replace(" ","_")
@@ -405,7 +477,7 @@ log_path = os.path.join(proj_path, 'processing.log')
 terminal_stdout = sys.stdout
 with open(log_path, 'w') as f:
     #sys.stdout = f
-    sys.stdout = open(log_path,'w')
+    #sys.stdout = open(log_path,'w')
     start = datetime.datetime.now()
     print(start.strftime("%Y-%m-%d %H:%M:%S"))
     print(f'\nBuilding {proj_type[:-1]} for {h10name} ({curhuc})')
@@ -419,16 +491,94 @@ with open(log_path, 'w') as f:
     cov_meta_out_path = add_file(cov_meta_path, proj_path, outdir)
     
     # Temperature
-    temp_file = os.path.join(tempdir, 'predictions_temperature', f'st_pred_{curhuc}.csv')
+    temp_file = os.path.join(tempdir, 'predictions_temperature', f'{curhuc}.nc')
     temp_df, no_st_values, st_db_path = create_database_file(temp_file, date_col = 'tim.date', proj_path = proj_path, 
                                    db_type = 'stream_temperature', add_cols = None, compression = None, 
-                                   overwrite = overwrite)
-    
+                                   overwrite = False)
+   
     # Covariates
-    cov_file = os.path.join(tempdir, 'predictions_covariates', 'cov_csvs', f'{curhuc}_covs.zip')
-    cov_df, no_cov_values, cov_db_path = create_database_file(cov_file, date_col = 'date', proj_path = proj_path,
-                                  db_type = 'covariates', add_cols = temp_df[['comid', 'date', 'antec_air_temp', 'std_mean_flow']], 
-                                  compression = 'zip', overwrite = overwrite)
+    cov_file = os.path.join(tempdir, 'predictions_covariates', 'cov_csvs', f'{curhuc}_covs.pkl.zip')
+    cov_df, no_cov_values, cov_db_path = create_database_file(cov_file, proj_path = proj_path, 
+                                                              covs_to_count = anom_covs, db_type = 'covariates', compression = 'zip', overwrite = True)
+#%% KDE plots, all seasons, all years
+import matplotlib.pyplot as plt
+seasons = ['fall', 'winter', 'spring', 'summer']
+comidlist = list(air.comid.unique())
+for i in [5, 10, 30, 80, 90, 150, 175]:
+    curcomid = comidlist[i]
+    cur_air = air[(air.comid==curcomid) & (air.GCM!='mean')]
+    
+    fig, axs = plt.subplots(2, 2, figsize = (12, 8))
+    sns.kdeplot(ax = axs[0, 0], data = cur_air[cur_air.season=='fall'], x = 'air_temp_ws', hue='GCM', fill=True, alpha = 0.10)
+    axs[0,0].text(0.1, 0.9, 'Fall', transform = axs[0,0].transAxes)
+     
+    sns.kdeplot(ax = axs[0, 1], data = cur_air[cur_air.season=='winter'], x = 'air_temp_ws', hue='GCM', fill=True, alpha = 0.10)
+    axs[0, 1].text(0.1, 0.9, 'Winter', transform = axs[0, 1].transAxes)
+    
+    sns.kdeplot(ax = axs[1, 0], data = cur_air[cur_air.season=='spring'], x = 'air_temp_ws', hue='GCM', fill=True, alpha = 0.10)
+    axs[1, 0].text(0.1, 0.9, 'Spring', transform = axs[1, 0].transAxes)
+    
+    sns.kdeplot(ax = axs[1, 1], data = cur_air[cur_air.season=='summer'], x = 'air_temp_ws', hue='GCM', fill=True, alpha = 0.10)
+    axs[1, 1].text(0.1, 0.9, 'Summer', transform = axs[1, 1].transAxes)
+    
+    plt.suptitle(curcomid)
+    plt.show()
+
+
+#%% Boxplots, all seasons and all years
+import matplotlib.pyplot as plt
+seasons = ['fall', 'winter', 'spring', 'summer']
+comidlist = list(air.comid.unique())
+for i in [5, 10, 30]:
+    curcomid = comidlist[i]
+    cur_air = air[(air.comid==curcomid) & (air.GCM!='mean')]
+    
+    fig, axs = plt.subplots(2, 2, figsize = (12, 8))
+    sns.boxplot(ax = axs[0, 0], data = cur_air[cur_air.season=='fall'], y = 'air_temp_ws', hue='GCM', fill=True, legend = None)
+    #axs[0,0].text(0.1, 0.9, 'Fall', transform = axs[0,0].transAxes)
+    axs[0,0].set_title('Fall')
+    axs[0,0].set_xlabel('GCM')
+    
+    sns.boxplot(ax = axs[0, 1], data = cur_air[cur_air.season=='winter'], y = 'air_temp_ws', hue='GCM', fill=True, legend = None)
+    #axs[0, 1].text(0.1, 0.9, 'Winter', transform = axs[0, 1].transAxes)
+    axs[0, 1].set_title('Winter')
+    axs[0, 1].set_xlabel('GCM')
+
+    
+    sns.boxplot(ax = axs[1, 0], data = cur_air[cur_air.season=='spring'], y = 'air_temp_ws', hue='GCM', fill=True, legend = None)
+    #axs[1, 0].text(0.1, 0.9, 'Spring', transform = axs[1, 0].transAxes)
+    axs[1, 0].set_title('Spring')
+    axs[1, 0].set_xlabel('GCM')
+
+    
+    sns.boxplot(ax = axs[1, 1], data = cur_air[cur_air.season=='summer'], y = 'air_temp_ws', hue='GCM', fill=True, legend = None)
+    axs[1, 1].set_title('Summer')
+    axs[1, 1].set_xlabel('GCM')
+    
+
+    plt.suptitle(curcomid)
+    plt.show()
+
+#%% Boxplots, summer, by epoch
+import matplotlib.pyplot as plt
+seasons = ['fall', 'winter', 'spring', 'summer']
+comidlist = list(air.comid.unique())
+for i in [5, 10, 30]:
+    curcomid = comidlist[i]
+    cur_air = air[(air.comid==curcomid) & (air.GCM!='mean')]
+    
+    fig, axs = plt.subplots(2, figsize = (12, 8))
+    
+    sns.boxplot(ax = axs[1, 1], data = cur_air[cur_air.season=='summer'], y = 'air_temp_ws', hue='GCM', fill=True, legend = None)
+    axs[1, 1].set_title('Summer')
+    axs[1, 1].set_xlabel('GCM')
+    
+
+    plt.suptitle(curcomid)
+    plt.show()
+
+    gpd.read_file
+   
     #%% Build geopackage
     
     gpkg_filename = 'seasonal_anomalies_spatial_covariates.gpkg'
@@ -551,9 +701,9 @@ with open(log_path, 'w') as f:
                Meta('Model Documentation','https://doi.org/10.1371/journal.pwat.0000119', type='url'),
                Meta('Hydrologic Unit Code', curhuc),
                Meta('Watershed Name', h10name.replace('_', ' ')),
+               Meta('Reach IDs (NHDv2 COMIDs)', [int(c) for c in cur_comids]),
                Meta('Number stream temperature predictions', [int(no_st_values)]),
-               Meta(f'Number covariate predictions {out_anoms}', [int(v) for v in no_cov_values]),
-               Meta('Feature IDs (NHDv2 COMIDs)', [int(c) for c in cur_comids])
+               Meta(f'Number covariate predictions {out_anoms}', [int(v) for v in no_cov_values])
            ]),
            bounds=ProjectBounds(
                Coords(centroid.x, centroid.y),
@@ -619,18 +769,11 @@ with open(log_path, 'w') as f:
     
     #%% Finish
     runtime = datetime.datetime.now() - start
-    print(f'\n\n\n----------  DONE. Runtime {runtime.seconds // 60}:{runtime.seconds % 60} MINUTES  ---------')
+    print(f'\n\n\n----------  DONE. Runtime {runtime.seconds // 3600}:{runtime.seconds // 60}:{runtime.seconds % 60} hours  ---------')
     sys.stdout = terminal_stdout
+stop
+res = subprocess.run(['rscli',' upload','--org', 'fe204da2-8c52-4165-9e90-f4c9807ac57a','--visibility','PRIVATE', 
+                      f'{proj_path}', '--verbose'], capture_output = True, text = True)
 
-try:
-    res = subprocess.run(['rscli','upload','--org', 'fe204da2-8c52-4165-9e90-f4c9807ac57a','--visibility','PRIVATE', 
-                      f'{proj_path}', '--verbose'], input = 'Y\r', capture_output=True, text = True)
-    with open(os.path.join(outdir, 'upload_log.txt'), 'a') as f:
-        if res.stdout[-14:-6]=='COMPLETE':
-            f.write(f'\n{curhuc} - {h10name_hr} SUCCESS\n {res.stdout}')
-        else: f.write(f'\n{curhuc} - {h10name_hr} ERROR\n {res.stdout}')
-except subprocess.CalledProcessError as e:
-    print(e)
-    with open(os.path.join(outdir, 'upload_log.txt'), 'a') as f:
-        f.write(f'\n{curhuc} - {h10name_hr} SUBPROCESS ERROR \n{e}')
-
+with open(os.path.join(outdir, 'upload_log.txt'), 'w') as f:
+    f.write(f'{curhuc} - {h10name_hr} uploaded successfully\n')
