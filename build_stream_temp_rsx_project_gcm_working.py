@@ -135,8 +135,8 @@ for curhuc in [h10s_usgs[0]]:
         # Temperature
         temp_files = [os.path.join(tempdir, 'predictions_temperature', f'{h}.nc') for h in alth10s]
         temp_df, no_st_values, st_db_path = stp.create_database_file(temp_files, cur_comids, date_col = 'tim.date', proj_path = proj_path, 
-                                       db_type = 'stream_temperature', add_cols = None, compression = None, 
-                                       overwrite = overwrite)
+                                      db_type = 'stream_temperature', add_cols = None, compression = None, 
+                                      overwrite = overwrite)
         
         # Covariates
         cov_files = [os.path.join(tempdir, 'predictions_covariates', 'cov_csvs', f'{h}_covs.zip') for h in alth10s]

@@ -127,7 +127,7 @@ for curhuc in [h10s_usgs[5]]:
         print(f'\nBuilding {proj_type[:-1]} for {h10name} ({curhuc})')
         
         # Add README
-        readme_path = os.path.join(outdir, 'readme.html')
+        readme_path = os.path.join(outdir, 'README.html')
         readme_out_path = stp.add_file(readme_path, proj_path, outdir)
         
         # # Add covariate metadata
@@ -298,7 +298,7 @@ for curhuc in [h10s_usgs[5]]:
                       ),
                       Dataset(
                           xml_id='README',
-                          name='readme',
+                          name='README',
                           ds_type = 'File',
                           description='Project description and metadata',
                           path=os.path.relpath(readme_out_path, proj_path),
@@ -343,9 +343,9 @@ for curhuc in [h10s_usgs[5]]:
         print(f'Project XML file written to {os.path.relpath(merged_project_xml, proj_path)}')
         #%% Finish
         runtime = datetime.datetime.now() - start
-        print(f'\n\n\n----------  DONE. Runtime {runtime.seconds // 60}:{runtime.seconds % 60} MINUTES  ---------')
+        print(f'\n\n\n----------  DONE. Runtime: {runtime.seconds // 60}:{runtime.seconds % 60:02d} minutes  ---------')
         sys.stdout = terminal_stdout
-        print(f'\n\n\n----------  DONE. Runtime {runtime.seconds // 60}:{runtime.seconds % 60} MINUTES  ---------')
+        print(f'\n\n\n----------  DONE. Runtime: {runtime.seconds // 60}:{runtime.seconds % 60:02d} minutes  ---------')
         stop
     try:
         res = subprocess.run(['rscli','upload','--org', 'fe204da2-8c52-4165-9e90-f4c9807ac57a','--visibility','PRIVATE', 
@@ -357,5 +357,5 @@ for curhuc in [h10s_usgs[5]]:
     
     except subprocess.CalledProcessError as e:
         print(e)
-        with open(os.path.join(outdir, 'upload_log.txt'), 'a') as f:
+        with open(os.path.join(outdir, 'upload_log_retro.txt'), 'a') as f:
             f.write(f'\n@ {curhuc} - {h10name_hr} SUBPROCESS ERROR \n{e}')

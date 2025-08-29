@@ -19,6 +19,40 @@ ul.task-list li input[type="checkbox"] {
 width: 0.8em;
 margin: 0 0.8em 0.2em -1em;  vertical-align: middle;
 }
+
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+}
+pre.numberSource { margin-left: 3em; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
 </style>
 
 
@@ -4889,8 +4923,9 @@ window.Quarto = {
   <li><a href="#getting-the-data" id="toc-getting-the-data" class="nav-link" data-scroll-target="#getting-the-data">Getting the data</a></li>
   <li><a href="#project-contents" id="toc-project-contents" class="nav-link" data-scroll-target="#project-contents">Project contents</a>
   <ul class="collapse">
-  <li><a href="#covariates" id="toc-covariates" class="nav-link" data-scroll-target="#covariates">Covariates</a></li>
-  <li><a href="#geopackage-contents" id="toc-geopackage-contents" class="nav-link" data-scroll-target="#geopackage-contents">Geopackage contents</a></li>
+  <li><a href="#files" id="toc-files" class="nav-link" data-scroll-target="#files">Files</a></li>
+  <li><a href="#sec-geopackage" id="toc-sec-geopackage" class="nav-link" data-scroll-target="#sec-geopackage">Geopackage contents</a></li>
+  <li><a href="#sec-Covariates" id="toc-sec-Covariates" class="nav-link" data-scroll-target="#sec-Covariates">Covariates</a></li>
   </ul></li>
   <li><a href="#caveats" id="toc-caveats" class="nav-link" data-scroll-target="#caveats">Caveats</a></li>
   <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references">References</a></li>
@@ -4935,18 +4970,163 @@ window.Quarto = {
 </section>
 <section id="project-contents" class="level1">
 <h1>Project contents</h1>
+<section id="files" class="level3">
+<h3 class="anchored" data-anchor-id="files">Files</h3>
 <p>Each project includes the following informational and data files:</p>
 <ul>
-<li><p>readme.html</p></li>
+<li><p>README.html</p></li>
 <li><p>project_bounds.geojson</p></li>
 <li><p>project.rs.xml</p></li>
 <li><p>processing.log</p></li>
-<li><p><strong>daily_strem_temperature.db.zip</strong>, a zipped database of the full set of daily stream temperature predictions (1990-2021) for each stream reach (i.e., each comid in the 1:100,000 National Hydrography Dataset).</p></li>
-<li><p><strong>daily_coviarates.db.zip</strong>, a zipped database of the full set of daily temporal covariate values, by reach, for covariates used in the temperature prediction model, as well as many others that were computed but not used in the final model. Covariates and associated metadata are described below.</p></li>
-<li><p><strong>seasonal_anomalies_spatial_covariates.gpkg</strong>, a geopackage containing the layers (i.e. tables) of spatial features and attributes shown below.</p></li>
+<li><p><strong>daily_stream_temperature.parquet.gz</strong>, a zipped parquet<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a> file of the full set of daily stream temperature predictions (1990-2021) for each stream reach (i.e., each comid in the 1:100,000 National Hydrography Dataset).</p></li>
+<li><p><strong>daily_covariates.parquet.gz</strong>, a zipped parquet file of the full set of daily temporal covariate values, by reach, for covariates used in the temperature prediction model, as well as many others that were computed but not used in the final model. Covariates and associated metadata are described below.</p></li>
+<li><p><strong>seasonal_anomalies_spatial_covariates.gpkg</strong>, a geopackage containing <a href="#sec-geopackage">several layers</a> (i.e. tables) of spatial features and <a href="#sec-Covariates">covariate attributes</a>.</p></li>
 </ul>
-<section id="covariates" class="level3">
-<h3 class="anchored" data-anchor-id="covariates">Covariates</h3>
+<aside id="footnotes" class="footnotes footnotes-end-of-section" role="doc-footnote">
+<hr>
+<ol>
+<li id="fn1"><p>Parquet files are an efficient and powerful column-based file format. For a quick start, the entire parquet file can be loaded into a dataframe in Python or in R using the commands below:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode default code-with-copy"><code class="sourceCode default"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a># Python</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>import pandas as pd</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>df = pd.read_parquet(&quot;daily_stream_temperature.parquet.gz&quot;, engine = &#39;pyarrow&#39;, compression = &#39;gzip&#39;)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode" id="cb2"><pre class="sourceCode default code-with-copy"><code class="sourceCode default"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a># R</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>install.packages(&quot;arrow&quot;)</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>library(arrow)</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>df &lt;- read_parquet(&quot;daily_stream_temperature.parquet.gz&quot;)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></li>
+</ol>
+</aside>
+</section>
+<section id="sec-geopackage" class="level3">
+<h3 class="anchored" data-anchor-id="sec-geopackage">Geopackage contents</h3>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 24%">
+<col style="width: 24%">
+<col style="width: 26%">
+<col style="width: 24%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Geopackage layer name</th>
+<th>Data type</th>
+<th>Description</th>
+<th>Available views<a href="#fn2" class="footnote-ref" id="fnref2" role="doc-noteref"><sup>2</sup></a></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>flowlines</td>
+<td>LineString</td>
+<td>flowline geometries for each stream reach by comid, from the National Hydrography Dataset (NHD) V2</td>
+<td></td>
+</tr>
+<tr class="even">
+<td>contributing area</td>
+<td>MultiPolygon</td>
+<td>lateral contributing area polygons for each stream reach, from NHDV2</td>
+<td></td>
+</tr>
+<tr class="odd">
+<td>HUC12_boundaries</td>
+<td>Polygon</td>
+<td>12-digit hydrologic unit (HUC 12) polygons, from NHDV2</td>
+<td></td>
+</tr>
+<tr class="even">
+<td>spatial covariates</td>
+<td>attribute</td>
+<td>values of spatial attributes used or considered for the stream temperature prediction model</td>
+<td></td>
+</tr>
+<tr class="odd">
+<td>stream_temperature_2010s</td>
+<td>attribute</td>
+<td>median seasonal<a href="#fn3" class="footnote-ref" id="fnref3" role="doc-noteref"><sup>3</sup></a> stream temperature [<em>°C</em>] predictions across available data<a href="#fn4" class="footnote-ref" id="fnref4" role="doc-noteref"><sup>4</sup></a> from years 2010-2019, by stream reach (i.e., <em>baseline temperature</em>)</td>
+<td>polygons, lines</td>
+</tr>
+<tr class="even">
+<td>stream_temperature_2010s_byHUC12</td>
+<td>attribute</td>
+<td>contributing-area<span class="math inline">\(-\)</span>weighted<a href="#fn5" class="footnote-ref" id="fnref5" role="doc-noteref"><sup>5</sup></a> seasonal median stream temperature predictions across calendar years 2010-2019, by HUC 12 (i.e., <em>baseline temperature</em>)</td>
+<td>polygons</td>
+</tr>
+<tr class="odd">
+<td>stream_temperature_anomalies_2000s</td>
+<td>attribute</td>
+<td>difference from <em>baseline temperature</em> (i.e., years 2010-2019) in seasonal median stream temperature [<em>°C</em>] prediction across calendar years 2000-2009, by stream reach</td>
+<td>polygons, lines</td>
+</tr>
+<tr class="even">
+<td>stream_temperature_anomalies_2000s_byHUC12</td>
+<td>attribute</td>
+<td>contributing-area<span class="math inline">\(-\)</span>weighted difference from <em>baseline temperature</em> in seasonal median stream temperature [<em>°C</em>] prediction across calendar years 2000-2009, by HUC 12</td>
+<td>polygons</td>
+</tr>
+<tr class="odd">
+<td>stream_temperature_anomalies_1990s</td>
+<td>attribute</td>
+<td>difference from <em>baseline temperature</em> in seasonal median stream temperature [<em>°C</em>] prediction across calendar years 1990-1999, by stream reach</td>
+<td>polygons, lines</td>
+</tr>
+<tr class="even">
+<td>stream_temperature_anomalies_1990s_byHUC12</td>
+<td>attribute</td>
+<td>contributing-area<span class="math inline">\(-\)</span>weighted difference from <em>baseline temperature</em> in median stream temperature [<em>°C</em>] prediction across calendar years 1990-1999, by HUC 12</td>
+<td>polygons</td>
+</tr>
+<tr class="odd">
+<td>temporal_covariates_2010s</td>
+<td>attribute</td>
+<td>median seasonal values for covariates <em>air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>]<a href="#fn6" class="footnote-ref" id="fnref6" role="doc-noteref"><sup>6</sup></a> across water years<a href="#fn7" class="footnote-ref" id="fnref7" role="doc-noteref"><sup>7</sup></a> 2010-2019, by stream reach (i.e., <em>baseline values</em>).</td>
+<td>polygons, lines</td>
+</tr>
+<tr class="even">
+<td>temporal_covariates_2010s_byHUC12</td>
+<td>attribute</td>
+<td>contributing-area<span class="math inline">\(-\)</span>weighted median seasonal values for covariates <em>air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 2010-2019, by HUC 12 (i.e., <em>baseline values</em>).</td>
+<td>polygons</td>
+</tr>
+<tr class="odd">
+<td>temporal_covariates_anomalies_2000s</td>
+<td>attribute</td>
+<td>difference from <em>baseline values</em> for covariates <em>air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 2000-2009, by stream reach.</td>
+<td>polygons, lines</td>
+</tr>
+<tr class="even">
+<td>temporal_covariates_anomalies_2000s_byHUC12</td>
+<td>attribute</td>
+<td>contributing-area<span class="math inline">\(-\)</span>weighted difference from <em>baseline values</em> for covariates <em>air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 2000-2009, by HUC 12.</td>
+<td>polygons</td>
+</tr>
+<tr class="odd">
+<td>temporal_covariates_anomalies_1990s</td>
+<td>attribute</td>
+<td>difference from <em>baseline values</em> for covariates <em>air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 1990-1999, by stream reach.</td>
+<td>polygons, lines</td>
+</tr>
+<tr class="even">
+<td>temporal_covariates_anomalies_1990s_byHUC12</td>
+<td>attribute</td>
+<td>contributing-area<span class="math inline">\(-\)</span>weighted difference from <em>baseline values</em> for covariates <em>air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 1990-1999, by HUC 12.</td>
+<td>polygons</td>
+</tr>
+</tbody>
+</table>
+<aside id="footnotes-2" class="footnotes footnotes-end-of-section" role="doc-footnote">
+<hr>
+<ol start="2">
+<li id="fn2"><p>SQL views for given attribute tables appear as additional geopackage layers with “vw_” prepended to the original table name, followed by the shape (e.g., “vw_stream_temperature_2010s_polygons.”) For attributes by reach, polygon views are the contriubting areas and line views are flowlines. For attriubtes by HUC 12, polygon views are HUC 12 boundaries.<a href="#fnref2" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn3"><p>Seasons were assigned based on calendar day of year (doy): <span class="math inline">\(sp\)</span> = spring (doy 80–171), <span class="math inline">\(su\)</span> = summer (doy 172–263), <span class="math inline">\(fa\)</span> = fall (doy 264–356), <span class="math inline">\(wi\)</span> = winter (doy <span class="math inline">\(\leq\)</span> 79 or doy <span class="math inline">\(\geq\)</span> 357).<a href="#fnref3" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn4"><p>Missing data are coded as -999 in the databases and geopackage. Sample sizes (<span class="math inline">\(n\)</span>) are reported for all aggregate metrics in the geopackage layers (i.e., baseline and anomaly values and area-weighted medians) to aid users in understanding the input data and evaluating the output.<a href="#fnref4" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn5"><p>Area-weighted medians for metric <span class="math inline">\(x\)</span> by HUC 12, where <span class="math inline">\(med(x)_j\)</span> is the median seasonal value of <span class="math inline">\(x\)</span> across years, and <span class="math inline">\(a_j\)</span> is the area, for contributing area <span class="math inline">\(j\)</span> in <span class="math inline">\(HUC12_i\)</span>, were computed as: <span class="math display">\[med({X})_{HUC12_i} = \frac{\sum_{j=1}^{n}{med(x)_j*a_j}}{\sum{a_j}}\]</span><a href="#fnref5" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn6"><p>Covariates are as defined below, with the exception of snow water storage (<span class="math inline">\(SwS\)</span>), defined as the integrated area under the snow water equivalent (<span class="math inline">\(SWE\)</span>) curve (Aragon and Hill, 2024). Here, we summed daily values of <span class="math inline">\(SWE\)</span> [<span class="math inline">\(m\)</span>] over each season <span class="math inline">\(s\)</span> to compute seasonal <span class="math inline">\(SwS_s\)</span> [<span class="math inline">\(m\cdot days\)</span>].<a href="#fnref6" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+<li id="fn7"><p>Water years begin on 1 October and are named for the year in which they conclude (e.g., 15 November 2020 is water year 2021). So that a water year comprised four continuous seasons, we re-classified the last several days in September (doy 267–274) as “summer.” Because the first prediction is 1 January 1990, water year 1990 is truncated at the top.<a href="#fnref7" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+</ol>
+</aside>
+</section>
+<section id="sec-Covariates" class="level3">
+<h3 class="anchored" data-anchor-id="sec-Covariates">Covariates</h3>
 <table class="caption-top table">
 <colgroup>
 <col style="width: 20%">
@@ -5624,20 +5804,6 @@ window.Quarto = {
 <td></td>
 </tr>
 <tr class="odd">
-<td><em>Huc10</em></td>
-<td>unitless</td>
-<td>not used</td>
-<td>10th digit hydrologic unit code</td>
-<td></td>
-</tr>
-<tr class="even">
-<td><em>lookup</em></td>
-<td>unitless</td>
-<td>not used</td>
-<td>concatination of reach identifier, year, and day of year</td>
-<td></td>
-</tr>
-<tr class="odd">
 <td><em>date</em></td>
 <td>date</td>
 <td>not used</td>
@@ -5645,20 +5811,13 @@ window.Quarto = {
 <td></td>
 </tr>
 <tr class="even">
-<td><em>year</em></td>
-<td>year</td>
-<td>not used</td>
-<td>year</td>
-<td></td>
-</tr>
-<tr class="odd">
 <td><em>canopy_rca</em></td>
 <td>percent</td>
 <td>not used</td>
 <td>proportional canopy cover in the reach contributing area</td>
 <td></td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td><em>canopy_ws</em></td>
 <td>percent</td>
 <td>not used</td>
@@ -5668,138 +5827,10 @@ window.Quarto = {
 </tbody>
 </table>
 </section>
-<section id="geopackage-contents" class="level3">
-<h3 class="anchored" data-anchor-id="geopackage-contents">Geopackage contents</h3>
-<table class="caption-top table">
-<colgroup>
-<col style="width: 22%">
-<col style="width: 16%">
-<col style="width: 37%">
-<col style="width: 22%">
-</colgroup>
-<thead>
-<tr class="header">
-<th>Geopackage layer name</th>
-<th>Data type</th>
-<th>Description</th>
-<th>Available views<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a></th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>flowlines</td>
-<td>LineString</td>
-<td>flowline geometries for each stream reach by comid, from the National Hydrography Dataset (NHD) V2</td>
-<td></td>
-</tr>
-<tr class="even">
-<td>contributing area</td>
-<td>MultiPolygon</td>
-<td>lateral contributing area polygons for each stream reach, from NHDV2</td>
-<td></td>
-</tr>
-<tr class="odd">
-<td>HUC12_boundaries</td>
-<td>Polygon</td>
-<td>12-digit hydrologic unit (HUC 12) polygons, from NHDV2</td>
-<td></td>
-</tr>
-<tr class="even">
-<td>spatial covariates</td>
-<td>attribute</td>
-<td>values of spatial attributes used or considered for the stream temperature prediction model</td>
-<td></td>
-</tr>
-<tr class="odd">
-<td>stream_temperature_2010s</td>
-<td>attribute</td>
-<td>median seasonal<a href="#fn2" class="footnote-ref" id="fnref2" role="doc-noteref"><sup>2</sup></a> stream temperature (<em>°C</em>) predictions across available data<a href="#fn3" class="footnote-ref" id="fnref3" role="doc-noteref"><sup>3</sup></a> from years 2010-2019, by stream reach (i.e., <em>baseline temperature</em>)</td>
-<td>polygons, lines</td>
-</tr>
-<tr class="even">
-<td>stream_temperature_2010s_byHUC12</td>
-<td>attribute</td>
-<td>contributing-area<span class="math inline">\(-\)</span>weighted<a href="#fn4" class="footnote-ref" id="fnref4" role="doc-noteref"><sup>4</sup></a> seasonal median stream temperature predictions across calendar years 2010-2019, by HUC 12 (i.e., <em>baseline temperature</em>)</td>
-<td>polygons</td>
-</tr>
-<tr class="odd">
-<td>stream_temperature_anomalies_2000s</td>
-<td>attribute</td>
-<td>difference from <em>baseline temperature</em> (i.e., years 2010-2019) in seasonal median stream temperature (<em>°C</em>) prediction across calendar years 2000-2009, by stream reach</td>
-<td>polygons, lines</td>
-</tr>
-<tr class="even">
-<td>stream_temperature_anomalies_2000s_byHUC12</td>
-<td>attribute</td>
-<td>contributing-area<span class="math inline">\(-\)</span>weighted difference from <em>baseline temperature</em> in seasonal median stream temperature (<em>°C</em>) prediction across calendar years 2000-2009, by HUC 12</td>
-<td>polygons</td>
-</tr>
-<tr class="odd">
-<td>stream_temperature_anomalies_1990s</td>
-<td>attribute</td>
-<td>difference from <em>baseline temperature</em> in seasonal median stream temperature (<em>°C</em>) prediction across calendar years 1990-1999, by stream reach</td>
-<td>polygons, lines</td>
-</tr>
-<tr class="even">
-<td>stream_temperature_anomalies_1990s_byHUC12</td>
-<td>attribute</td>
-<td>contributing-area<span class="math inline">\(-\)</span>weighted difference from <em>baseline temperature</em> in median stream temperature (<em>°C</em>) prediction across calendar years 1990-1999, by HUC 12</td>
-<td>polygons</td>
-</tr>
-<tr class="odd">
-<td>temporal_covariates_2010s</td>
-<td>attribute</td>
-<td>median seasonal values for covariates <em>antec_air_temp</em> (<em>°C</em>), <em>NWM_flow_log</em> (<em>log(m</em><sup><em>3</em></sup><em>/s</em>)), <em>SwS</em> (<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>)<a href="#fn5" class="footnote-ref" id="fnref5" role="doc-noteref"><sup>5</sup></a>) across water years<a href="#fn6" class="footnote-ref" id="fnref6" role="doc-noteref"><sup>6</sup></a>) 2010-2019, by stream reach (i.e., <em>baseline values</em>).</td>
-<td>polygons, lines</td>
-</tr>
-<tr class="even">
-<td>temporal_covariates_2010s_byHUC12</td>
-<td>attribute</td>
-<td>contributing-area<span class="math inline">\(-\)</span>weighted median seasonal values for covariates <em>antec_air_temp</em> (<em>°C</em>), <em>NWM_flow_log</em> (<em>log(m</em><sup><em>3</em></sup><em>/s</em>)), <em>SwS</em> (<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>) across water years 2010-2019, by HUC 12 (i.e., <em>baseline values</em>).</td>
-<td>polygons</td>
-</tr>
-<tr class="odd">
-<td>temporal_covariates_anomalies_2000s</td>
-<td>attribute</td>
-<td>difference from <em>baseline values</em> for covariates <em>antec_air_temp</em> (<em>°C</em>), <em>NWM_flow_log</em> (<em>log(m</em><sup><em>3</em></sup><em>/s</em>)), <em>SwS</em> (<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>) across water years 2000-2009, by stream reach.</td>
-<td>polygons, lines</td>
-</tr>
-<tr class="even">
-<td>temporal_covariates_anomalies_2000s_byHUC12</td>
-<td>attribute</td>
-<td>contributing-area<span class="math inline">\(-\)</span>weighted difference from <em>baseline values</em> for covariates <em>antec_air_temp</em> (<em>°C</em>), <em>NWM_flow_log</em> (<em>log(m</em><sup><em>3</em></sup><em>/s</em>)), <em>SwS</em> (<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>) across water years 2000-2009, by HUC 12.</td>
-<td>polygons</td>
-</tr>
-<tr class="odd">
-<td>temporal_covariates_anomalies_1990s</td>
-<td>attribute</td>
-<td>difference from <em>baseline values</em> for covariates <em>antec_air_temp</em> (<em>°C</em>), <em>NWM_flow_log</em> (<em>log(m</em><sup><em>3</em></sup><em>/s</em>)), <em>SwS</em> (<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>) across water years 1990-1999, by stream reach.</td>
-<td>polygons, lines</td>
-</tr>
-<tr class="even">
-<td>temporal_covariates_anomalies_1990s_byHUC12</td>
-<td>attribute</td>
-<td>contributing-area<span class="math inline">\(-\)</span>weighted difference from <em>baseline values</em> for covariates <em>antec_air_temp</em> (<em>°C</em>), <em>NWM_flow_log</em> (<em>log(m</em><sup><em>3</em></sup><em>/s</em>)), <em>SwS</em> (<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>) across water years 1990-1999, by HUC 12.</td>
-<td>polygons</td>
-</tr>
-</tbody>
-</table>
-<aside id="footnotes" class="footnotes footnotes-end-of-section" role="doc-footnote">
-<hr>
-<ol>
-<li id="fn1"><p>SQL views for given attribute tables appear as additional geopackage layers with “vw_” prepended to the original table name, followed by the shape (e.g., “vw_stream_temperature_2010s_polygons.”) For attributes by reach, polygon views are the contriubting areas and line views are flowlines. For attriubtes by HUC 12, polygon views are HUC 12 boundaries.<a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
-<li id="fn2"><p>Seasons were assigned based on calendar day of year (doy): <span class="math inline">\(sp\)</span> = spring (doy 80–171), <span class="math inline">\(su\)</span> = summer (doy 172–263), <span class="math inline">\(fa\)</span> = fall (doy 264–356), <span class="math inline">\(wi\)</span> = winter (doy <span class="math inline">\(\leq\)</span> 79 or doy <span class="math inline">\(\geq\)</span> 357).<a href="#fnref2" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
-<li id="fn3"><p>Missing data are coded as -999 in the databases and geopackage. Sample sizes (<span class="math inline">\(n\)</span>) are reported for all aggregate metrics in the geopackage layers (i.e., baseline and anomaly values and area-weighted medians) to aid users in understanding the input data and evaluating the output.<a href="#fnref3" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
-<li id="fn4"><p>Area-weighted medians for metric <span class="math inline">\(x\)</span> by HUC 12, where <span class="math inline">\(med(x)_j\)</span> is the median seasonal value of <span class="math inline">\(x\)</span> across years, and <span class="math inline">\(a_j\)</span> is the area, for contributing area <span class="math inline">\(j\)</span> in <span class="math inline">\(HUC12_i\)</span>, were computed as: <span class="math display">\[med({X})_{HUC12_i} = \frac{\sum_{j=1}^{n}{med(x)_j*a_j}}{\sum{a_j}}\]</span><a href="#fnref4" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
-<li id="fn5"><p>Covariates are as defined below, with the exception of snow water storage (<span class="math inline">\(SwS\)</span>), defined as the integrated area under the snow water equivalent (<span class="math inline">\(SWE\)</span>) curve (Aragon and Hill, 2024). Here, we summed daily values of <span class="math inline">\(SWE\)</span> (<span class="math inline">\(m\)</span>) over each season <span class="math inline">\(s\)</span> to compute seasonal <span class="math inline">\(SwS_s\)</span> (<span class="math inline">\(m\cdot days\)</span>).<a href="#fnref5" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
-<li id="fn6"><p>Water years begin on 1 October and are named for the year in which they conclude (e.g., 15 November 2020 is water year 2021). So that a water year comprised four continuous seasons, we re-classified the last several days in September (doy 267]{#fn6}–274) as “summer.” Because the first prediction is 1 January 1990, water year 1990 is truncated at the top.<a href="#fnref6" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
-</ol>
-</aside>
-</section>
 </section>
 <section id="caveats" class="level1">
 <h1>Caveats</h1>
-<p>All of the stream temperature predictions in this project type are modeled at the grain of individual stream reaches. To standardize the model input and output, all covariates developed (for model exploration and for final model implementation) are organized and indexed by their reach identifier (COMID) from the National Hydrographic Data flowline data set, NHDPlus v2.1. For more on the history of the NHD project read <a href="https://dmap-data-commons-ow.s3.amazonaws.com/NHDPlusV21/Documentation/History/Making_the_Digital_Water_Flow.pdf">here</a>. To package these data for the Riverscape Exchange (RsX), collections of metrics are grouped into watersheds and the 10 digit Hydrologic Unit Code (HUC) extent. The HUC-10 definitions (polygon location and extents) were developed separately from the flowlines as part of the Watershed Boundary Dataset (WBD). For more on the history of the WBD read <a href="https://www.usgs.gov/national-hydrography/watershed-boundary-dataset">here</a>. Because the flowline and watershed boundary development projects were implemented in parallel, users could end up with flowline data that indexed incorrectly to its containing watershed. This misalignment has shown up in the stream temperature project type data sets in RsX. We believe, however, that we have re-aligned the flowline reach indices (COMID) with the watershed boundary indices (HUC-10) by utilizing a crosswalk table developed by USGS at the close of both projects. The crosswalk can be accessed <a href="https://data.usgs.gov/datacatalog/data/USGS:5c86a747e4b09388244b3da1">here</a>. All projects using COMIDs indexed by HUCs should confirm that they are correctly aligned. Flowline and watershed boundary data downloaded prior to 2019 may contain misalignments.</p>
+<p>All of the stream temperature predictions in this project type are modeled at the grain of individual stream reaches. To standardize the model input and output, all covariates developed (for model exploration and for final model implementation) are organized and indexed by their reach identifier (COMID) from the National Hydrographic Data flowline data set, NHDPlus v2.1. For more on the history of the NHD project read <a href="https://dmap-data-commons-ow.s3.amazonaws.com/NHDPlusV21/Documentation/History/Making_the_Digital_Water_Flow.pdf">here</a>. To package these data for the Riverscape Exchange (RsX), collections of metrics are grouped into watersheds and the 10 digit Hydrologic Unit Code (HUC) extent. The HUC-10 definitions (polygon location and extents) were developed separately from the flowlines as part of the Watershed Boundary Dataset (WBD). For more on the history of the WBD read <a href="https://www.usgs.gov/national-hydrography/watershed-boundary-dataset">here</a>. Because the flowline and watershed boundary development projects were implemented in parallel, users could end up with flowline data that indexed incorrectly to its containing watershed. This misalignment has shown up in the stream temperature project type data sets in RsX. We believe, however, that we have re-aligned the flowline reach indices (COMID) with the watershed boundary indices (HUC 10) by utilizing a crosswalk table developed by USGS at the close of both projects. The crosswalk can be accessed <a href="https://data.usgs.gov/datacatalog/data/USGS:5c86a747e4b09388244b3da1">here</a>. All projects using COMIDs indexed by HUCs should confirm that they are correctly aligned. Flowline and watershed boundary data downloaded prior to 2019 may contain misalignments.</p>
 <p>The stream temperature predictions should be used with appropriate caution. Although predictions are made at high spatial and temporal resolution, they are only as good as the spatiotemporal resolution of the covariates, which varied and may have been coarser. As well, the model was not designed to capture or reflect effects of dams and thus any predictions near dams or reservoirs should be used cautiously. Any temperatures above 35°<em>°C</em>should be regarded as suspicious; these could have been produced at boundaries where covariate values were artificially truncated, or in cases where GAM curves predicted anomalous outcomes.</p>
 </section>
 <section id="references" class="level1">
@@ -5815,9 +5846,9 @@ window.Quarto = {
 </section>
 <section id="contact" class="level1">
 <h1>Contact</h1>
-<p>Aimee Fullerton, <em>Supervisory Research Biologist</em> <a href="mailto:%20aimee.fullerton@noaa.gov">aimee.fullterton@noaa.gov</a></p>
 <p>Dawn URycki, <em>Data Scientist</em> <a href="mailto:dawn.urycki@noaa.gov">dawn.urycki@noaa.gov</a></p>
 <p>Damon Holzer, <em>Cartographer</em> <a href="mailto:damon.holzer@noaa.gov">damon.holzer@noaa.gov</a></p>
+<p>Aimee Fullerton, <em>Supervisory Research Biologist</em> <a href="mailto:%20aimee.fullerton@noaa.gov">aimee.fullterton@noaa.gov</a></p>
 <p>Chris Jordan, <em>Mathematical Biology and Systems Monitoring Program Manager</em> <a href="mailto:chris.jordan@noaa.gov">chris.jordan@noaa.gov</a></p>
 <div class="quarto-figure quarto-figure-left">
 <figure class="figure">
