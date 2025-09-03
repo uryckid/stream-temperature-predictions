@@ -100,7 +100,7 @@ h10s_usgs = list({str(h)[:10] for h in xwalk.Huc12_usgs.unique()})
 h10s_usgs.sort()
 #conflicts = xwalk[xwalk.Huc12 != xwalk.Huc12_usgs]
 
-for curhuc in [h10s_usgs[0]]: 
+for curhuc in h10s_usgs[:11]: 
     print(curhuc)
     
     cur_comids = list(xwalk.loc[xwalk.Huc12_usgs.astype(str).str.contains(curhuc)].index)
@@ -125,24 +125,25 @@ for curhuc in [h10s_usgs[0]]:
         print(f'\nBuilding {proj_type[:-1]} for {h10name} ({curhuc})')
         
         # Add README
-        readme_path = os.path.join(outdir, 'readme.html')
+        readme_path = os.path.join(outdir, 'README.html')
         readme_out_path = stp.add_file(readme_path, proj_path, outdir)
         
         # Add covariate metadata
-        cov_meta_path = os.path.join('DATA', 'covariate_metadata.csv')
-        cov_meta_out_path = stp.add_file(cov_meta_path, proj_path, outdir)
+        #cov_meta_path = os.path.join('DATA', 'covariate_metadata.csv')
+        #cov_meta_out_path = stp.add_file(cov_meta_path, proj_path, outdir)
         
         # Temperature
         temp_files = [os.path.join(tempdir, 'predictions_temperature', f'{h}.nc') for h in alth10s]
         temp_df, no_st_values, st_db_path = stp.create_database_file(temp_files, cur_comids, date_col = 'tim.date', proj_path = proj_path, 
-                                      db_type = 'stream_temperature', add_cols = None, compression = None, 
-                                      overwrite = overwrite)
+                               db_type = 'stream_temperature', add_cols = None, compression = None, 
+                               overwrite = overwrite)
+        
         
         # Covariates
-        cov_files = [os.path.join(tempdir, 'predictions_covariates', 'cov_csvs', f'{h}_covs.zip') for h in alth10s]
+        cov_files = [os.path.join(tempdir, 'predictions_covariates', 'parquets', f'{h}_covs.parq') for h in alth10s]
         cov_df, no_cov_values, cov_db_path = stp.create_database_file(cov_files, cur_comids, date_col = 'date', proj_path = proj_path,
-                                      db_type = 'covariates', add_cols = temp_df[['comid', 'date', 'antec_air_temp', 'std_mean_flow']], 
-                                      compression = 'zip', overwrite = overwrite)
+                              db_type = 'covariates', covs_to_count = anom_covs,
+                              compression = 'zip', overwrite = overwrite)
         #%% Build geopackage
 
         gpkg_filename = 'seasonal_anomalies_spatial_covariates.gpkg'
@@ -344,7 +345,7 @@ for curhuc in [h10s_usgs[0]]:
         print(f'\n\n\n----------  DONE. Runtime {runtime.seconds // 60}:{runtime.seconds % 60} MINUTES  ---------')
     
     try:
-        res = subprocess.run(['rscli','upload','--org', 'fe204da2-8c52-4165-9e90-f4c9807ac57a','--visibility','PRIVATE', 
+        res = subprocess.run(['rscli','upload','--org', 'fe204da2-8c52-4165-9e90-f4c9807ac57a','--visibility','PUBLIC', 
                           f'{proj_path}', '--verbose'], input = 'Y\r', capture_output=True, text = True)
         with open(os.path.join(outdir, 'upload_log.txt'), 'a') as f:
             if res.stdout[-14:-6]=='COMPLETE':

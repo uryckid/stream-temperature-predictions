@@ -4985,10 +4985,11 @@ window.Quarto = {
 <aside id="footnotes" class="footnotes footnotes-end-of-section" role="doc-footnote">
 <hr>
 <ol>
-<li id="fn1"><p>Parquet files are an efficient and powerful column-based file format. For a quick start, the entire parquet file can be loaded into a dataframe in Python or in R using the commands below:</p>
+<li id="fn1"><p>Parquet is an efficient and powerful column-based file format. For a quick start, the entire parquet file can be loaded into a dataframe in Python or in R using the commands below:</p>
 <div class="sourceCode" id="cb1"><pre class="sourceCode default code-with-copy"><code class="sourceCode default"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a># Python</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>import pandas as pd</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>df = pd.read_parquet(&quot;daily_stream_temperature.parquet.gz&quot;, engine = &#39;pyarrow&#39;, compression = &#39;gzip&#39;)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>pip install pandas pyarrow </span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>import pandas as pd</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>df = pd.read_parquet(&quot;daily_stream_temperature.parquet.gz&quot;, engine = &#39;pyarrow&#39;)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
 <div class="sourceCode" id="cb2"><pre class="sourceCode default code-with-copy"><code class="sourceCode default"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a># R</span>
 <span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>install.packages(&quot;arrow&quot;)</span>
 <span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>library(arrow)</span>
@@ -5078,37 +5079,37 @@ window.Quarto = {
 <tr class="odd">
 <td>temporal_covariates_2010s</td>
 <td>attribute</td>
-<td>median seasonal values for covariates <em>air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>]<a href="#fn6" class="footnote-ref" id="fnref6" role="doc-noteref"><sup>6</sup></a> across water years<a href="#fn7" class="footnote-ref" id="fnref7" role="doc-noteref"><sup>7</sup></a> 2010-2019, by stream reach (i.e., <em>baseline values</em>).</td>
+<td>median seasonal values for covariates <em>antec_air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>]<a href="#fn6" class="footnote-ref" id="fnref6" role="doc-noteref"><sup>6</sup></a> across water years<a href="#fn7" class="footnote-ref" id="fnref7" role="doc-noteref"><sup>7</sup></a> 2010-2019, by stream reach (i.e., <em>baseline values</em>).</td>
 <td>polygons, lines</td>
 </tr>
 <tr class="even">
 <td>temporal_covariates_2010s_byHUC12</td>
 <td>attribute</td>
-<td>contributing-area<span class="math inline">\(-\)</span>weighted median seasonal values for covariates <em>air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 2010-2019, by HUC 12 (i.e., <em>baseline values</em>).</td>
+<td>contributing-area<span class="math inline">\(-\)</span>weighted median seasonal values for covariates <em>antec_air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 2010-2019, by HUC 12 (i.e., <em>baseline values</em>).</td>
 <td>polygons</td>
 </tr>
 <tr class="odd">
 <td>temporal_covariates_anomalies_2000s</td>
 <td>attribute</td>
-<td>difference from <em>baseline values</em> for covariates <em>air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 2000-2009, by stream reach.</td>
+<td>difference from <em>baseline values</em> for covariates <em>antec_air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 2000-2009, by stream reach.</td>
 <td>polygons, lines</td>
 </tr>
 <tr class="even">
 <td>temporal_covariates_anomalies_2000s_byHUC12</td>
 <td>attribute</td>
-<td>contributing-area<span class="math inline">\(-\)</span>weighted difference from <em>baseline values</em> for covariates <em>air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 2000-2009, by HUC 12.</td>
+<td>contributing-area<span class="math inline">\(-\)</span>weighted difference from <em>baseline values</em> for covariates <em>antec_air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 2000-2009, by HUC 12.</td>
 <td>polygons</td>
 </tr>
 <tr class="odd">
 <td>temporal_covariates_anomalies_1990s</td>
 <td>attribute</td>
-<td>difference from <em>baseline values</em> for covariates <em>air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 1990-1999, by stream reach.</td>
+<td>difference from <em>baseline values</em> for covariates <em>antec_air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 1990-1999, by stream reach.</td>
 <td>polygons, lines</td>
 </tr>
 <tr class="even">
 <td>temporal_covariates_anomalies_1990s_byHUC12</td>
 <td>attribute</td>
-<td>contributing-area<span class="math inline">\(-\)</span>weighted difference from <em>baseline values</em> for covariates <em>air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 1990-1999, by HUC 12.</td>
+<td>contributing-area<span class="math inline">\(-\)</span>weighted difference from <em>baseline values</em> for covariates <em>antec_air_temp</em> [<em>°C</em>], <em>NWM_flow_log</em> [<em>log(m</em><sup><em>3</em></sup><em>/s</em>)], <em>SwS</em> [<em>m</em><span class="math inline">\(\cdot\)</span><em>days</em>] across water years 1990-1999, by HUC 12.</td>
 <td>polygons</td>
 </tr>
 </tbody>

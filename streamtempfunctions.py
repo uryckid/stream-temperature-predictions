@@ -56,24 +56,16 @@ def add_file(filepath, dest, ref_path = None):
     print(f'\n{filename} successfully added to {os.path.relpath(dest, ref_path)}.')
     return outpath
 
-def add_database(df, db_name, db_path, zip_file = True):
-    connection= sqlite3.connect(db_path)
-    df.to_sql(db_name, connection, if_exists = 'replace')
-    connection.close()
-    print('Database created successfully')
-    if zip_file:
-        zip_path = db_path + '.zip'
-        try:
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                zipf.write(db_path, os.path.basename(db_path))
-            os.remove(db_path)
-            print(f"Successfully zipped '{db_name}' to '{os.path.relpath(zip_path)}'")
-        except:
-            print(f"\nERROR zipping database {db_name}.")
+def add_dataset(df, ds_name, ds_path):
+    try:
+        df.to_parquet(ds_path, engine = 'pyarrow', compression = 'gzip')
+        print(f"Successfully created '{os.path.relpath(ds_path)}'")
+    except:
+        print(f"\nERROR creating {ds_path}.")
     return
 
 def create_database_file(files, cur_comids, date_col, proj_path, db_type, 
-                         compression = None, add_cols = None, zip_file = True, overwrite = False, 
+                         add_cols = None, overwrite = False, compression = None,
                          covs_to_count = ['antec_air_temp', 'NWM_flow_log', 'SWE']):
     frames = []
     for file in files:
@@ -86,7 +78,7 @@ def create_database_file(files, cur_comids, date_col, proj_path, db_type,
         df.rename(columns = {'tim.date': 'r_date'}, inplace = True)
     df.columns = df.columns.str.split(r'\.').str[-1].str.strip()    
     df.rename({'COMID': 'comid', 'Huc10': 'HUC10'}, axis = 1, inplace = True)
-    out_path = os.path.join(proj_path, f'daily_{db_type}.db')
+    out_path = os.path.join(proj_path, f'daily_{db_type}.parquet.gz')
 
     if db_type == 'stream_temperature':
         try:
@@ -100,9 +92,6 @@ def create_database_file(files, cur_comids, date_col, proj_path, db_type,
     else: 
         try:
             df_out = df.loc[:,~df.columns.duplicated()].copy()
-            # if add_cols not in df.columns:
-            #     df_out = pd.merge(df, add_cols, how = 'left', on=['comid','date'])
-            # else: df_out = df.copy()
             datapoints = np.array([df_out[f'{covs_to_count[0]}'].notnull().sum(), 
                           df_out[f'{covs_to_count[1]}'].notnull().sum(),
                           df_out[f'{covs_to_count[2]}'].notnull().sum()])
@@ -114,8 +103,7 @@ def create_database_file(files, cur_comids, date_col, proj_path, db_type,
     if datapoints.sum() > 0:
         out_table = df_out.fillna(-999).infer_objects(copy=False).round(4)
         print('Writing to database...')
-        add_database(out_table, db_type, db_path = out_path, zip_file = zip_file)
-        if zip: out_path+='.zip'
+        add_dataset(out_table, db_type, ds_path = out_path)
     return df, datapoints, out_path  
 
 
