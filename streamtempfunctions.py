@@ -10,18 +10,20 @@ Created on Thu Mar 20 14:30:58 2025
 This script does stuff with stuff
 '''
 
+import geopandas as gpd
 import os
-import datetime
-import time
+import numpy as np
 import pandas as pd
+import xarray as xr
+import dask.dataframe as dd
 import shutil
 import sqlite3
+import gc
+import pyarrow as pa
+import pyarrow.parquet as pq
 import zipfile
-import glob
-import numpy as np
-import geopandas as gpd
-from shapely import Point, LineString, Polygon
-from shapely import force_2d
+from os.path import basename
+
 from rsxml.project_xml import (
    Project,
    MetaData,
@@ -36,17 +38,16 @@ from rsxml.project_xml import (
    Dataset
 )
 
-
-import sys
-import subprocess
-
 def create_proj_dir(huc6, new_dir, ref_path):
     path = os.path.join(ref_path, f'{huc6}/{new_dir}')
     
     if not os.path.exists(path):
         os.makedirs(path)
         print(f'Project directory created: {os.path.relpath(path, ref_path)}')
-    else: print(f'Project directory exists: {os.path.relpath(path, ref_path)}')
+    else: 
+        print(f'Project directory exists: {os.path.relpath(path, ref_path)}')
+        #path = path + '_1'
+        #os.makedirs(path)
     return(path)
 
 def add_file(filepath, dest, ref_path = None):
@@ -56,69 +57,140 @@ def add_file(filepath, dest, ref_path = None):
     print(f'\n{filename} successfully added to {os.path.relpath(dest, ref_path)}.')
     return outpath
 
-def add_dataset(df, ds_name, ds_path):
-    try:
-        df.to_parquet(ds_path, engine = 'pyarrow', compression = 'gzip')
-        print(f"Successfully created '{os.path.relpath(ds_path)}'")
+def add_dataset(df, ds_name, ds_path, ref_path = None):
+    try: 
+        df_filled = df.drop('GCM', axis =1).fillna(-999).round(4)
+        df_filled['GCM'] = df['GCM']
     except:
-        print(f"\nERROR creating {ds_path}.")
-    return
+        df_filled = df.copy()
+        for col in df.columns: 
+            if col not in ['GCM', 'lookup']:
+                df.loc[:,col] = df.loc[:,col].fillna(-999).round(4)
+    try:
+        df.to_parquet(ds_path, compute = True, engine = 'pyarrow', write_index = False, compression = 'gzip')
+        shutil.make_archive(f'{ds_path}', 'zip', ds_path)
+        shutil.rmtree(ds_path)
+        print(f"Successfully created '{os.path.relpath(ds_path, ref_path)}'")
+    except:
+        try:
+            try: df['lookup'] = df['lookup'].astype(str)
+            except: pass
+            
+            writer = None
+            for i in range(0, len(df), 10000):
+                chunk_df = df.iloc[i:i + 10000]
+                table = pa.Table.from_pandas(chunk_df)
+
+                if writer is None:
+                    # Create the Parquet writer with GZIP compression and desired row group size
+                    writer = pq.ParquetWriter(ds_path, table.schema, compression='gzip')
+                # Write the current chunk (table) to the Parquet file
+                writer.write_table(table)
+
+            # Close the writer to finalize the Parquet file
+            if writer is not None:
+                writer.close()
+            
+            #df.to_parquet(ds_path, engine = 'pyarrow', index = False, compression = 'gzip')
+            print(f"Successfully created '{os.path.relpath(ds_path, ref_path)}'")
+            df = df.loc[df.GCM=='ens_mean']
+        
+        except: print(f"\nERROR creating {ds_path}.")
+    
+    df_out = df[df.GCM=='ens_mean'].replace(-999, np.nan)
+    df_out = df_out.compute()
+    
+    return df_out
 
 def create_database_file(files, cur_comids, date_col, proj_path, db_type, 
                          add_cols = None, overwrite = False, compression = None,
                          covs_to_count = ['antec_air_temp', 'NWM_flow_log', 'SWE']):
     frames = []
     for file in files:
-    	print(f'\n\nRetrieving data from {os.path.relpath(file)}')
-    	cur_df = pd.read_csv(file, parse_dates = [date_col], compression = compression)
-    	frames.append(cur_df.loc[cur_df.COMID.isin(cur_comids)])
-    df = pd.concat(frames, axis = 0) 
-           
-    if not pd.api.types.is_datetime64_any_dtype(cur_df['tim.date']): 
-        df.rename(columns = {'tim.date': 'r_date'}, inplace = True)
-    df.columns = df.columns.str.split(r'\.').str[-1].str.strip()    
-    df.rename({'COMID': 'comid', 'Huc10': 'HUC10'}, axis = 1, inplace = True)
-    out_path = os.path.join(proj_path, f'daily_{db_type}.parquet.gz')
+        if not os.path.exists(file):
+            print(f'File not found: {os.path.relpath(file)}')
+            if (frames == []) & (file == files[-1]):
+                print('NO DATA.')
+                return pd.DataFrame(), [], []
+            continue
+        
+        
+        print(f'\n\nRetrieving data from {os.path.relpath(file)}')
+        
+        try:
+            if file[-3:]=='.nc': 
+                ds = xr.open_dataset(file)
+                df = ds[['COMID','date', 'GCM', *ds.data_vars]].to_dask_dataframe()
+                                   # ens_mean = ds.mean(dim='GCM')
+                # ens_mean = ens_mean.assign_coords(GCM='ens_mean')
+                # ds_comb = xr.concat([ds, ens_mean], dim = 'GCM')
+                # #df_mean = ens_mean[['COMID','date', 'GCM', *ens_mean.data_vars]].to_dataframe().reset_index()
+                # cur_df = ds_comb[['COMID','date', 'GCM', *ds_comb.data_vars]].to_dataframe().reset_index()
+                
+            elif file[-5:] == '.parq':
+                df = dd.read_parquet(file, filters = [('COMID', 'in', (tuple(cur_comids)))], engine = 'pyarrow')
+                df.columns = [c.strip('cov.') for c in df.columns]
+                df['date'] = dd.to_datetime(df['tim.year'] * 1000 + df['tim.doy'], format='%Y%j')
+                #ds = df.to_xarray()
+            
+            print(f'Calculating ensemble mean {db_type}...')
+            
+            try: df = df.drop('lookup', axis = 1)
+            except: pass
+        
+            ens_mean = df.groupby(['COMID', 'date']).mean().reset_index()
+            ens_mean['GCM'] = 'ens_mean'
+            df['GCM'] = df['GCM'].astype('str')
+            cur_df = dd.concat([df, ens_mean], axis = 0)
+            frames.append(cur_df)
+            print('Done.')
+               
+        except: print('ERROR. Ensemble mean could not be calculated.')            
+        
+    df = dd.concat(frames, axis = 0)
+    gc.collect()           
+
+    try:
+        if not pd.api.types.is_datetime64_any_dtype(df['tim.date']): 
+            df = df.rename(columns = {'tim.date': 'r_date'})    
+    except:pass
+    
+    df.columns = [col.split('.')[-1] for col in list(df.columns)]
+    df = df.rename(columns = {'COMID': 'comid', 'Huc10': 'HUC10', 'Flow_log': 'flow_log', 'Flow': 'flow'})
+    out_path = os.path.join(proj_path, f'daily_{db_type}.parquet')
 
     if db_type == 'stream_temperature':
         try:
-            dropcols = ['antec_air_temp', 'std_mean_flow']
-            df_trim = df.drop(dropcols, axis = 1, errors = 'ignore')
-            df_out = df_trim[['comid', 'date', 'stream_temp']]
-            datapoints = np.array(df_out.stream_temp.notnull().sum())
-            print(f'''\n\nStream temperature file processed: {len(df_out.comid.unique())} comids, {df_out.shape[0]} records, {datapoints} non-null stream temperature values.''')
+            datapoints = np.array(df.stream_temp.count(axis = 0).compute())
+            print(f'''\n\nStream temperature file processed: {len(df.comid.unique().compute())} COMIDs, {df.shape[0].compute()} records, {datapoints} non-null stream temperature values.''')
         except: print('\n\nStream temperature file FAILED.')
    
     else: 
         try:
-            df_out = df.loc[:,~df.columns.duplicated()].copy()
-            datapoints = np.array([df_out[f'{covs_to_count[0]}'].notnull().sum(), 
-                          df_out[f'{covs_to_count[1]}'].notnull().sum(),
-                          df_out[f'{covs_to_count[2]}'].notnull().sum()])
-            print(f'''\n\nTemporal covariates file processed: {len(df_out.comid.unique())} comids, {df_out.shape[0]} records;\nNumber covariate predictions {covs_to_count}: {datapoints}.''')
+            ens_mean = ens_mean.rename(columns = {'COMID': 'comid', 'Huc10': 'HUC10', 'Flow_log': 'flow_log', 'Flow': 'flow'})
+            datapoints = ens_mean[covs_to_count].count(axis=0).compute().values * 10
+            print(f'\n\nTemporal covariates file processed: {len(ens_mean['comid'].unique().compute())} COMIDs;\nNumber covariate predictions {covs_to_count}: {datapoints}.')
         except: 
             print('\n\nTemporal covariates file FAILED.')
-            return
+            return pd.DataFrame(), [], []
         
     if datapoints.sum() > 0:
-        out_table = df_out.fillna(-999).infer_objects(copy=False).round(4)
         print('Writing to database...')
-        add_dataset(out_table, db_type, ds_path = out_path)
-    return df, datapoints, out_path  
+        try: 
+            df = add_dataset(df, db_type, ds_path = out_path, ref_path = proj_path)
+            print(f"Successfully created {os.path.relpath(out_path+'.zip', proj_path)}.")
+        except: print(f"Failed to write {os.path.relpath(out_path+'.zip', proj_path)}.")
+    return df, datapoints, out_path + '.zip'  
 
 
 def check_comids(comids, data, layer_name):
     n_cols = [col for col in data.columns if col[0:2] == 'n_']
     if n_cols != []: data_comids = set(data[data[n_cols].sum(axis =1) != 0].index)
     else: data_comids = set(data.index)
-    no_data = set(comids).difference(data_comids)
-    if no_data==set(): 
-        return(print(f'\n\n{layer_name} successfully loaded for {len(comids)} features'))
-    else: 
-        return(print(f'\n\n{layer_name} missing data for {round((len(no_data) / len(comids)), 2)*100}% of features:', 
-                     [str(n) for n in no_data]))
+    
+    return(print(f'\n\n{layer_name} successfully loaded for {len(comids)} features'))
 
-def layer_to_gpkg(comids, data, path, layer_name, epsg = '4326', check=True):
+def layer_to_gpkg(comids, data, path, rel_path, layer_name, epsg = '4326', check=True):
     if check: check_comids(comids, data, layer_name)
     try: 
         data.to_crs(epsg = epsg, inplace = True)
@@ -129,7 +201,7 @@ def layer_to_gpkg(comids, data, path, layer_name, epsg = '4326', check=True):
         print('\n\nGeopackage successfully initiated.')
     else: gpd.GeoDataFrame(data.fillna(-999).infer_objects(copy=False).round(4)).to_file(path, layer = layer_name)
     
-    return(print(f'\n{layer_name} added to {os.path.relpath(path)}.'))
+    return(print(f'\n{layer_name} added to {os.path.relpath(path, rel_path)}.'))
     
 def load_spatial_covariates(file):
     df = pd.read_csv(file, index_col = 'COMID')
@@ -292,7 +364,7 @@ def create_index(dbpath, layer, ixname):
                          ON {layer}({ixname});''')
             conn.commit()
             return(print(f'\nix created: {ixname}'))
-        except: return(print('\nFailed to create index on {ixname}'))
+        except: return(print(f'\nFailed to create index on {ixname}'))
 
 def add_view(dbpath, layer_name, feature_table, f_index, a_index, shape = 'polygons'):
     conn = sqlite3.connect(dbpath)
@@ -323,7 +395,7 @@ def add_view(dbpath, layer_name, feature_table, f_index, a_index, shape = 'polyg
     return
        
 def check_bounds(rsx_bounds, cur_geoms):    
-    if len(gpd.overlay(rsx_bounds, cur_geoms.to_crs(rsx_bounds.crs).dissolve())) < 1:
+    if len(gpd.overlay(rsx_bounds, cur_geoms.to_crs(rsx_bounds.crs).dissolve(), how = 'intersection')) < 1:
         print('Not overlapping')
         return(False)
     else: 
